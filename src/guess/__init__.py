@@ -1,4 +1,6 @@
-from typing import Any, Sequence
+from __future__ import annotations
+
+from typing import Any, Sequence, Optional
 
 from .parser import *
 
