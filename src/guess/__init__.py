@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Sequence, Optional
+from typing import Any, Sequence
 
 from .parser import *
 
@@ -12,7 +12,7 @@ class Interceptor:
 
     def __call__(self, *args):
         if s := create_query(self._func_name):
-            return self.db.execute(s, params=args)
+            return self.db.execute(s, params=args, func_name=self._func_name)
         return None
 
 
@@ -24,10 +24,28 @@ class Database:
         """
         self.conn = connection
 
+    def _prepare_query(self, query: str) -> str:
+        module_name = type(self.conn).__module__.split(".")[0]
+        if module_name == "sqlite3":
+            return query.replace("%s", "?")
+        return query
+
+    def _expects_many(self, func_name: Optional[str], query: str) -> bool:
+        if not query.startswith("SELECT"):
+            return False
+        if not func_name:
+            return True
+
+        match = re.match(r"^(?:get|select)_(?P<table>\w+?)(?:_columns_|_by_|$)", func_name)
+        if not match:
+            return True
+        return match.group("table").endswith("s")
+
     def execute(
             self,
             query: str,
             params: Optional[Sequence[Any]] = None,
+            func_name: Optional[str] = None,
     ):
         """
         Generic DB-API query executor.
@@ -39,14 +57,13 @@ class Database:
         """
         cur = self.conn.cursor()
         try:
-            cur.execute(query, params or ())
+            cur.execute(self._prepare_query(query), params or ())
 
             if query.startswith("SELECT"):
                 result = cur.fetchall()
-                if len(result) == 1:
-                    return result[0]
-                else:
+                if self._expects_many(func_name, query):
                     return result
+                return result[0] if result else None
 
             self.conn.commit()
         finally:
@@ -62,7 +79,8 @@ class AsyncDatabase(Database):
     async def execute(
             self,
             query: str,
-            params: Optional[Sequence[Any]] = None
+            params: Optional[Sequence[Any]] = None,
+            func_name: Optional[str] = None,
     ):
         """
         Generic async query executor.
@@ -73,16 +91,14 @@ class AsyncDatabase(Database):
         - batch: iterable of parameter sequences
         """
         async with self.conn.cursor() as cur:
-            result = await cur.execute(query, params or ())
+            result = await cur.execute(self._prepare_query(query), params or ())
 
             if query.startswith("SELECT"):
-                result = await cur.fetchall()
-                if len(result) == 1:
-                    return result[0]
-                else:
-                    return result
-            else:
-                return result
+                rows = await cur.fetchall()
+                if self._expects_many(func_name, query):
+                    return rows
+                return rows[0] if rows else None
+            return result
 
     def __getattr__(self, name: str) -> Any:
         database = AsyncDatabase(self.conn)
