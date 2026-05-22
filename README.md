@@ -1,6 +1,6 @@
-# 🔮 guess
+# 🔮 guess-what
 
-An elegant, zero-boilerplate, dynamic SQL interceptor for Python. `guess` translates semantic method calls into structured SQL queries at runtime, executing them automatically against any standard DB-API 2.0 database connection (synchronous or asynchronous).
+An elegant, zero-boilerplate, dynamic SQL interceptor for Python. `guess-what` translates semantic method calls into structured SQL queries at runtime, executing them automatically against any standard DB-API 2.0 database connection (synchronous or asynchronous).
 
 Stop writing repetitive boilerplate queries for simple CRUD operations. Just **guess** the method name, and let the library handle the database.
 
@@ -83,7 +83,7 @@ asyncio.run(main())
 
 ## 🛠️ Method Naming Conventions
 
-`guess` parses the method names you call using regular expressions to map them to SQL queries. The syntax is composed of:
+`guess-what` parses the method names you call using regular expressions to map them to SQL queries. The syntax is composed of:
 
 `[clause]_[table]_columns_[fields]_by_[conditions]`
 
