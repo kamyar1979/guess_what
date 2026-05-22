@@ -70,7 +70,7 @@ from guess import AsyncDatabase
 async def main():
     # Pass an asynchronous DB connection/pool to AsyncDatabase
     async_conn = ... 
-    db = AsyncDatabase(async_conn)
+    db = Database(async_conn, is_async=True)
 
     # All calls are automatically awaited
     users = await db.get_users()
@@ -79,7 +79,23 @@ async def main():
 asyncio.run(main())
 ```
 
----
+OR:
+
+```python
+import asyncio
+from guess import AsyncDatabase
+
+async def main():
+    # Pass an asynchronous DB connection/pool to AsyncDatabase
+    async_conn = ... 
+    db = Database(async_conn)
+
+    # All calls are automatically awaited
+    users = await db.async_get_users()
+    await db.set_user_columns_status_by_id("inactive", 2)
+
+asyncio.run(main())
+```
 
 ## 🛠️ Method Naming Conventions
 
