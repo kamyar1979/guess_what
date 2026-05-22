@@ -7,6 +7,7 @@ from guess.model import Clause, clause_mapping, Query
 
 clause_handlers = {}
 
+
 def register_clause(clause: Clause):
     def decorate(func):
         clause_handlers[clause] = func
@@ -15,7 +16,7 @@ def register_clause(clause: Clause):
     return decorate
 
 
-PATTERN = rf"^(?P<clause>{'|'.join(clause_mapping.keys())})_(?P<table>\w+?)(?:_columns_(?P<fields>[^by]+(?:_and_\w+)*))?(?:(?:_by)_(?P<conditions>\w+)?(?:_and_\w+)*)?$"
+PATTERN = rf"^(?P<clause>{'|'.join(clause_mapping.keys())})_(?P<table>\w+?)(?:_columns_(?P<fields>(?:(?!_by_)\w)+))?(?:_by_(?P<conditions>\w+))?$"
 
 
 def parse_func_name(func_name: str) -> Optional[Query]:
@@ -30,22 +31,16 @@ def parse_func_name(func_name: str) -> Optional[Query]:
 
 @register_clause(Clause.SELECT)
 def create_select_query(parts: Query) -> str:
-    if parts.conditions:
-        conditions = f"WHERE {" AND ".join(f"{f} = %s" for f in parts.conditions)}"
-    else:
-        conditions = ""
-
-    return f"SELECT {','.join(parts.fields or ["*"]) or '*'} FROM {parts.table} {conditions}"
+    conditions = f" WHERE {' AND '.join(f'{f} = %s' for f in parts.conditions)}" if parts.conditions else ""
+    fields_str = ",".join(parts.fields) if parts.fields else "*"
+    return f"SELECT {fields_str} FROM {parts.table}{conditions}"
 
 
 @register_clause(Clause.UPDATE)
 def create_update_query(parts: Query) -> str:
-    if parts.conditions:
-        conditions = f"WHERE {" AND ".join(f"{f} = %s" for f in parts.conditions)}"
-    else:
-        conditions = ""
-
-    return f"UPDATE {parts.table} SET {','.join(f"{f} = %s" for f in parts.fields or [])} {conditions}"
+    conditions = f" WHERE {' AND '.join(f'{f} = %s' for f in parts.conditions)}" if parts.conditions else ""
+    set_clause = ",".join(f"{f} = %s" for f in (parts.fields or []))
+    return f"UPDATE {parts.table} SET {set_clause}{conditions}"
 
 
 @register_clause(Clause.INSERT)
@@ -60,12 +55,8 @@ def create_insert_query(parts: Query) -> str:
 
 @register_clause(Clause.DELETE)
 def create_delete_query(parts: Query) -> str:
-    if parts.conditions:
-        conditions = f"WHERE {" AND ".join(f"{f} = %s" for f in parts.conditions)}"
-    else:
-        conditions = ""
-
-    return f"DELETE FROM {parts.table} {conditions}"
+    conditions = f" WHERE {' AND '.join(f'{f} = %s' for f in parts.conditions)}" if parts.conditions else ""
+    return f"DELETE FROM {parts.table}{conditions}"
 
 
 def create_query(func_name: str) -> Optional[str]:
