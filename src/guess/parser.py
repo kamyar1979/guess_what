@@ -25,7 +25,7 @@ def parse_func_name(func_name: str) -> Optional[Query]:
                      inflection.pluralize(m.group("table")),
                      m.group("fields").split('_and_') if m.group("fields") else None,
                      m.group("conditions").split('_and_') if m.group("conditions") else None,
-                     inflection.pluralize(m.group("table")) != m.group("table"),
+                     inflection.pluralize(m.group("table")) == m.group("table"),
                      m.group("async") == "async_"
                      )
     return None
