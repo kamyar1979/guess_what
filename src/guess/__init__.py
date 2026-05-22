@@ -12,17 +12,19 @@ class Interceptor:
 
     def __call__(self, *args):
         if query := create_query(self._func_name):
-            return self.db.execute(query.text, params=args, is_list=query.is_list, is_async=query.is_async)
+            return self.db.execute(query.text, params=args, is_list=query.is_list,
+                                   is_async=query.is_async or self.db.is_async)
         return None
 
 
 class Database:
-    def __init__(self, connection):
+    def __init__(self, connection, is_async: bool = False):
         """
         Accepts ANY DB-API 2.0 connection object.
         Example: sqlite3.connect(...), psycopg2.connect(...), mysql.connector.connect(...)
         """
         self.conn = connection
+        self.is_async = is_async
 
     def _prepare_query(self, query: str) -> str:
         module_name = type(self.conn).__module__.split(".")[0]
@@ -31,7 +33,7 @@ class Database:
         return query
 
     def __getattr__(self, name: str) -> Any:
-        database = Database(self.conn)
+        database = Database(self.conn, is_async=self.is_async)
         return Interceptor(name, database)
 
     def execute(
@@ -41,7 +43,7 @@ class Database:
             is_list: bool = False,
             is_async: bool = False,
     ):
-        if is_async:
+        if is_async or self.is_async:
             return self.execute_async(query, params, is_list)
 
         cur = self.conn.cursor()
