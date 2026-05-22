@@ -16,6 +16,14 @@ class Query:
     table: str
     fields: Optional[list[str]] = None
     conditions: Optional[list[str]] = None
+    is_list_result: bool = False
+    is_async_func: bool = False
+
+@dataclass
+class DigestedQuery:
+    text: str
+    is_list: bool
+    is_async: bool
 
 
 clause_mapping = {

@@ -3,7 +3,7 @@ from typing import Optional
 
 import inflection
 
-from guess.model import Clause, clause_mapping, Query
+from guess.model import Clause, clause_mapping, Query, DigestedQuery
 
 clause_handlers = {}
 
@@ -16,7 +16,7 @@ def register_clause(clause: Clause):
     return decorate
 
 
-PATTERN = rf"^(?P<clause>{'|'.join(clause_mapping.keys())})_(?P<table>\w+?)(?:_columns_(?P<fields>(?:(?!_by_)\w)+))?(?:_by_(?P<conditions>\w+))?$"
+PATTERN = rf"^(?P<async>async_)?(?P<clause>{'|'.join(clause_mapping.keys())})_(?P<table>\w+?)(?:_columns_(?P<fields>(?:(?!_by_)\w)+))?(?:_by_(?P<conditions>\w+?))?$"
 
 
 def parse_func_name(func_name: str) -> Optional[Query]:
@@ -25,6 +25,8 @@ def parse_func_name(func_name: str) -> Optional[Query]:
                      inflection.pluralize(m.group("table")),
                      m.group("fields").split('_and_') if m.group("fields") else None,
                      m.group("conditions").split('_and_') if m.group("conditions") else None,
+                     inflection.pluralize(m.group("table")) != m.group("table"),
+                     m.group("async") == "async_"
                      )
     return None
 
@@ -59,7 +61,7 @@ def create_delete_query(parts: Query) -> str:
     return f"DELETE FROM {parts.table}{conditions}"
 
 
-def create_query(func_name: str) -> Optional[str]:
+def create_query(func_name: str) -> Optional[DigestedQuery]:
     if q := parse_func_name(func_name):
-        return clause_handlers[q.clause](q)
+        return DigestedQuery(clause_handlers[q.clause](q), q.is_list_result, q.is_async_func)
     return None
