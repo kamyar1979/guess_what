@@ -9,7 +9,7 @@ Stop writing repetitive boilerplate queries for simple CRUD operations. Just **g
 ## ✨ Features
 
 - **🚀 Dynamic Method Interception**: Translates arbitrary method calls like `db.get_users()` directly into SQL.
-- **⚡ Async & Sync Support**: Works out of the box with synchronous connection wrappers (`Database`) and asynchronous ones (`AsyncDatabase`).
+- **⚡ Async & Sync Support**: Use the same `Database` wrapper for sync and async connections.
 - **🎯 Intelligent Parsing**: Robust regex-based query builder supporting projection fields and multi-condition `WHERE` clauses.
 - **🔌 Driver Agnostic**: Works with any standard Python DB-API 2.0 connection wrapper (e.g., SQLite, PostgreSQL, MySQL).
 
@@ -65,10 +65,10 @@ db.set_user_columns_status_by_id("active", 1)
 
 ```python
 import asyncio
-from guess import AsyncDatabase
+from guess import Database
 
 async def main():
-    # Pass an asynchronous DB connection/pool to AsyncDatabase
+    # Mark the wrapper async when all dynamic calls should be awaitable.
     async_conn = ... 
     db = Database(async_conn, is_async=True)
 
@@ -83,16 +83,16 @@ OR:
 
 ```python
 import asyncio
-from guess import AsyncDatabase
+from guess import Database
 
 async def main():
-    # Pass an asynchronous DB connection/pool to AsyncDatabase
+    # Or keep the wrapper sync by default and opt in per method name.
     async_conn = ... 
     db = Database(async_conn)
 
     # All calls are automatically awaited
     users = await db.async_get_users()
-    await db.set_user_columns_status_by_id("inactive", 2)
+    await db.async_set_user_columns_status_by_id("inactive", 2)
 
 asyncio.run(main())
 ```

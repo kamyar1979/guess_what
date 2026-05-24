@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import MagicMock, AsyncMock
-from guess import Database, AsyncDatabase
+from guess import Database
 
 
 def test_sync_database_select_multiple():
@@ -77,7 +77,7 @@ async def test_async_database_select_multiple():
     mock_cursor.execute.return_value = None
     mock_cursor.fetchall.return_value = [("Alice", "alice@example.com"), ("Bob", "bob@example.com")]
 
-    db = AsyncDatabase(mock_conn)
+    db = Database(mock_conn, is_async=True)
     result = await db.get_users()
 
     mock_conn.cursor.assert_called_once()
@@ -95,8 +95,8 @@ async def test_async_database_select_single():
     mock_cursor.execute.return_value = None
     mock_cursor.fetchall.return_value = [("Alice", "alice@example.com")]
 
-    db = AsyncDatabase(mock_conn)
-    result = await db.get_user_by_id(1)
+    db = Database(mock_conn)
+    result = await db.async_get_user_by_id(1)
 
     mock_cursor.execute.assert_called_once_with("SELECT * FROM users WHERE id = %s", (1,))
     mock_cursor.fetchall.assert_called_once()
@@ -110,9 +110,11 @@ async def test_async_database_insert():
     
     mock_conn.cursor.return_value.__aenter__.return_value = mock_cursor
     mock_cursor.execute.return_value = "inserted_id_or_result"
+    mock_conn.commit = AsyncMock()
 
-    db = AsyncDatabase(mock_conn)
+    db = Database(mock_conn, is_async=True)
     result = await db.add_user_columns_name_and_email("Alice", "alice@example.com")
 
     mock_cursor.execute.assert_called_once_with("INSERT INTO users ( name,email ) VALUES (%s,%s)", ("Alice", "alice@example.com"))
+    mock_conn.commit.assert_awaited_once()
     assert result == "inserted_id_or_result"

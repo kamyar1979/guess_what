@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Sequence
+import inspect
+from typing import Any, Optional, Sequence
 
 from .parser import *
 
@@ -74,4 +75,14 @@ class Database:
                 if is_list:
                     return rows
                 return rows[0] if rows else None
+            await self._commit_async()
             return result
+
+    async def _commit_async(self) -> None:
+        commit = getattr(self.conn, "commit", None)
+        if commit is None:
+            return
+
+        result = commit()
+        if inspect.isawaitable(result):
+            await result

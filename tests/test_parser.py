@@ -1,5 +1,5 @@
 import pytest
-from guess.model import Clause, Query
+from guess.model import Clause, DigestedQuery, Query
 from guess.parser import parse_func_name, create_query
 
 
@@ -92,22 +92,48 @@ def test_parse_func_name_invalid():
 
 def test_create_query_select():
     # Select all
-    assert create_query("get_users") == "SELECT * FROM users"
+    assert create_query("get_users") == DigestedQuery("SELECT * FROM users", True, False)
     # Select with conditions
-    assert create_query("get_user_by_id") == "SELECT * FROM users WHERE id = %s"
+    assert create_query("get_user_by_id") == DigestedQuery("SELECT * FROM users WHERE id = %s", False, False)
     # Select columns with conditions
-    assert create_query("get_user_columns_name_and_email_by_id") == "SELECT name,email FROM users WHERE id = %s"
+    assert create_query("get_user_columns_name_and_email_by_id") == DigestedQuery(
+        "SELECT name,email FROM users WHERE id = %s",
+        False,
+        False,
+    )
 
 
 def test_create_query_update():
-    assert create_query("set_user_columns_status_by_id") == "UPDATE users SET status = %s WHERE id = %s"
-    assert create_query("edit_post_columns_title_and_body_by_author_id") == "UPDATE posts SET title = %s,body = %s WHERE author_id = %s"
+    assert create_query("set_user_columns_status_by_id") == DigestedQuery(
+        "UPDATE users SET status = %s WHERE id = %s",
+        False,
+        False,
+    )
+    assert create_query("edit_post_columns_title_and_body_by_author_id") == DigestedQuery(
+        "UPDATE posts SET title = %s,body = %s WHERE author_id = %s",
+        False,
+        False,
+    )
 
 
 def test_create_query_insert():
-    assert create_query("add_user_columns_name_and_email") == "INSERT INTO users ( name,email ) VALUES (%s,%s)"
+    assert create_query("add_user_columns_name_and_email") == DigestedQuery(
+        "INSERT INTO users ( name,email ) VALUES (%s,%s)",
+        False,
+        False,
+    )
 
 
 def test_create_query_delete():
-    assert create_query("delete_user_by_id") == "DELETE FROM users WHERE id = %s"
-    assert create_query("remove_users") == "DELETE FROM users"
+    assert create_query("delete_user_by_id") == DigestedQuery("DELETE FROM users WHERE id = %s", False, False)
+    assert create_query("remove_users") == DigestedQuery("DELETE FROM users", True, False)
+
+
+def test_create_query_update_requires_columns():
+    with pytest.raises(ValueError, match="UPDATE queries require columns"):
+        create_query("set_user")
+
+
+def test_create_query_insert_requires_columns():
+    with pytest.raises(ValueError, match="INSERT queries require columns"):
+        create_query("add_user")

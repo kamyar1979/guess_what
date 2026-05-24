@@ -40,6 +40,9 @@ def create_select_query(parts: Query) -> str:
 
 @register_clause(Clause.UPDATE)
 def create_update_query(parts: Query) -> str:
+    if not parts.fields:
+        raise ValueError("UPDATE queries require columns")
+
     conditions = f" WHERE {' AND '.join(f'{f} = %s' for f in parts.conditions)}" if parts.conditions else ""
     set_clause = ",".join(f"{f} = %s" for f in (parts.fields or []))
     return f"UPDATE {parts.table} SET {set_clause}{conditions}"
@@ -47,6 +50,9 @@ def create_update_query(parts: Query) -> str:
 
 @register_clause(Clause.INSERT)
 def create_insert_query(parts: Query) -> str:
+    if not parts.fields:
+        raise ValueError("INSERT queries require columns")
+
     if parts.fields:
         fields = f"( {','.join(parts.fields)} )"
     else:
