@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Optional
+from typing import Optional, Any
 
 
 class Clause(StrEnum):
@@ -8,22 +8,26 @@ class Clause(StrEnum):
     UPDATE = 'UPDATE'
     INSERT = 'INSERT'
     DELETE = 'DELETE'
+    CALL = 'CALL'
 
 
 @dataclass
-class Query:
+class RawQuery:
     clause: Clause
-    table: str
+    target: str
     fields: Optional[list[str]] = None
     conditions: Optional[list[str]] = None
     is_list_result: bool = False
     is_async_func: bool = False
+    args: Optional[tuple[Any,...]] = None
+    result_type: Optional[type] = None
 
 @dataclass
 class DigestedQuery:
     text: str
-    is_list: bool
-    is_async: bool
+    args: Optional[tuple[Any,...]] = None
+    is_list: bool = False
+    is_async: bool = False
 
 
 clause_mapping = {
@@ -36,4 +40,5 @@ clause_mapping = {
     "insert": Clause.INSERT,
     "delete": Clause.DELETE,
     "remove": Clause.DELETE,
+    "call": Clause.CALL,
 }

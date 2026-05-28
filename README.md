@@ -11,6 +11,8 @@ Stop writing repetitive boilerplate queries for simple CRUD operations. Just **g
 - **🚀 Dynamic Method Interception**: Translates arbitrary method calls like `db.get_users()` directly into SQL.
 - **⚡ Async & Sync Support**: Use the same `Database` wrapper for sync and async connections.
 - **🎯 Intelligent Parsing**: Robust regex-based query builder supporting projection fields and multi-condition `WHERE` clauses.
+- **🧩 Typed Models**: Map rows and write values with `db.method[Model](...)` using Python dataclasses or Pydantic models.
+- **📞 Call Clause**: Call stored procedures or database functions with `call_...` methods.
 - **🔌 Driver Agnostic**: Works with any standard Python DB-API 2.0 connection wrapper (e.g., SQLite, PostgreSQL, MySQL).
 
 ---
@@ -90,11 +92,69 @@ async def main():
     async_conn = ... 
     db = Database(async_conn)
 
-    # All calls are automatically awaited
     users = await db.async_get_users()
     await db.async_set_user_columns_status_by_id("inactive", 2)
 
 asyncio.run(main())
+```
+
+### 3. Typed Dataclass/Pydantic Usage
+
+Use generic-style calls with `db.method[Type](...)` to convert selected rows into Python objects or extract insert/update values from an object. Supported model types are:
+
+* Python `dataclass` classes
+* Pydantic v2 models (`model_fields`)
+* Pydantic v1 models (`__fields__`)
+
+```python
+from dataclasses import dataclass
+from guess import Database
+
+@dataclass
+class User:
+    name: str
+    email: str
+    status: str
+
+db = Database(conn)
+
+# INSERT INTO users (name,email,status) VALUES (?, ?, ?)
+db.add_user[User](User("Alice", "alice@example.com", "pending"))
+
+# SELECT * FROM users WHERE name = ?
+user = db.get_user_by_name[User]("Alice")
+print(user)  # User(name="Alice", email="alice@example.com", status="pending")
+
+# UPDATE users SET status = ? WHERE name = ?
+db.set_user_columns_status_by_name[User](
+    User("Alice", "alice@example.com", "active"),
+    "Alice",
+)
+```
+
+For projected results, use a model that matches the selected columns:
+
+```python
+@dataclass
+class UserContact:
+    name: str
+    email: str
+
+contacts = db.get_users_columns_name_and_email[UserContact]()
+print(contacts)  # [UserContact(name="Alice", email="alice@example.com")]
+```
+
+Pydantic models work the same way:
+
+```python
+from pydantic import BaseModel
+
+class User(BaseModel):
+    name: str
+    email: str
+    status: str
+
+user = db.get_user_by_name[User]("Alice")
 ```
 
 ## 🛠️ Method Naming Conventions
@@ -103,12 +163,17 @@ asyncio.run(main())
 
 `[clause]_[table]_columns_[fields]_by_[conditions]`
 
+For database calls, use:
+
+`call_[function_or_procedure]`
+
 *   **`[clause]`**: Supported clauses are:
     *   **SELECT**: `get`, `select`
     *   **UPDATE**: `set`, `edit`, `update`
     *   **INSERT**: `add`, `insert`
     *   **DELETE**: `delete`, `remove`
-*   **`[table]`**: Singular form of the database table (automatically pluralized at runtime using inflection). E.g., `user` -> `users`.
+    *   **CALL**: `call`
+*   **`[table]`**: Singular form of the database table (automatically pluralized at runtime using inflection). E.g., `user` -> `users`. `call_...` targets are not pluralized.
 *   **`[fields]`** *(optional)*: Underscore-separated column list joined with `_and_`. E.g., `name_and_email` -> `name, email`.
 *   **`[conditions]`** *(optional)*: Underscore-separated filter columns joined with `_and_`. E.g., `status_and_role` -> `WHERE status = %s AND role = %s`.
 
@@ -118,6 +183,7 @@ asyncio.run(main())
 *   `get_user_columns_name_and_email_by_id` ➡️ `SELECT name,email FROM users WHERE id = %s`
 *   `set_user_columns_status_by_id` ➡️ `UPDATE users SET status = %s WHERE id = %s`
 *   `delete_user_by_id` ➡️ `DELETE FROM users WHERE id = %s`
+*   `call_refresh_cache("users", 10)` ➡️ `refresh_cache(%s,%s)`
 
 ---
 

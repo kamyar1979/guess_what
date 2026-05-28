@@ -1,6 +1,19 @@
 import sqlite3
+from dataclasses import dataclass
 
 from guess import Database
+
+@dataclass
+class User:
+    name: str
+    email: str
+    status: str
+
+
+@dataclass
+class UserContact:
+    name: str
+    email: str
 
 
 def test_sqlite_database_dynamic_methods_end_to_end():
@@ -50,6 +63,75 @@ def test_sqlite_database_dynamic_methods_end_to_end():
 
     assert db.get_users_columns_name_and_status() == [("Alice", "active")]
     assert db.get_user_by_email("bob@example.com") is None
+
+
+def test_sqlite_database_dataclass_insert_select_and_update():
+    conn = sqlite3.connect(":memory:")
+    conn.execute(
+        """
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            status TEXT NOT NULL
+        )
+        """
+    )
+
+    db = Database(conn)
+
+    db.add_user[User](User("Alice", "alice@example.com", "pending"))
+    db.add_user[User](User("Bob", "bob@example.com", "active"))
+
+    assert db.get_user_by_name[User]("Alice") == User(
+        "Alice",
+        "alice@example.com",
+        "pending",
+    )
+    assert db.get_users[User]() == [
+        User("Alice", "alice@example.com", "pending"),
+        User("Bob", "bob@example.com", "active"),
+    ]
+
+    db.set_user_columns_status_by_name[User](
+        User("Alice", "alice@example.com", "active"),
+        "Alice",
+    )
+
+    assert db.get_user_by_name[dict]("Alice") == {
+        "id": 1,
+        "name": "Alice",
+        "email": "alice@example.com",
+        "status": "active",
+    }
+
+
+def test_sqlite_database_generic_dataclass_projection():
+    conn = sqlite3.connect(":memory:")
+    conn.execute(
+        """
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            status TEXT NOT NULL
+        )
+        """
+    )
+
+    db = Database(conn)
+
+    db.add_user[User](User("Alice", "alice@example.com", "active"))
+    db.add_user[User](User("Bob", "bob@example.com", "pending"))
+
+    assert db.get_user_columns_name_and_email_by_status[UserContact]("active") == UserContact(
+        "Alice",
+        "alice@example.com",
+    )
+    assert db.get_users_columns_name_and_email[UserContact]() == [
+        UserContact("Alice", "alice@example.com"),
+        UserContact("Bob", "bob@example.com"),
+    ]
 
 
 def test_sqlite_database_supports_multiple_conditions_and_direct_execute():
