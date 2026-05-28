@@ -33,6 +33,9 @@ regex = re.compile(pattern, re.VERBOSE)
 
 
 def get_field_names(model) -> list[str]:
+    if model == dict:
+        raise TypeError("dict field names must come from a value")
+
     # Accept both class and instance
     cls = model if isinstance(model, type) else type(model)
 
@@ -49,6 +52,12 @@ def get_field_names(model) -> list[str]:
         return list(cls.__fields__.keys())
 
     raise TypeError(f"Unsupported type: {cls}")
+
+
+def get_value(obj: Any, field_name: str) -> Any:
+    if isinstance(obj, dict):
+        return obj[field_name]
+    return getattr(obj, field_name)
 
 
 def parse_func_name(func_name: str, result_type: Optional[type] = None, *args) -> Optional[RawQuery]:
@@ -71,9 +80,11 @@ def prepare_arguments(raw_query: RawQuery) -> tuple[Any, ...]:
     if raw_query.result_type:
         obj = raw_query.args[0]
         if raw_query.fields:
-            args = [getattr(obj, k) for k in raw_query.fields]
+            args = [get_value(obj, k) for k in raw_query.fields]
+        elif raw_query.result_type == dict:
+            args = list(obj.values())
         else:
-            args = [getattr(obj, k) for k in get_field_names(raw_query.result_type)]
+            args = [get_value(obj, k) for k in get_field_names(raw_query.result_type)]
         if raw_query.clause == Clause.UPDATE and raw_query.conditions:
             args += raw_query.args[-len(raw_query.conditions):]
         return tuple(args)
@@ -104,7 +115,10 @@ def create_update_query(raw_query: RawQuery) -> DigestedQuery:
 def create_insert_query(raw_query: RawQuery) -> DigestedQuery:
     insert_fields = raw_query.fields
     if not insert_fields and raw_query.result_type:
-        insert_fields = get_field_names(raw_query.result_type)
+        if raw_query.result_type == dict:
+            insert_fields = list(raw_query.args[0].keys())
+        else:
+            insert_fields = get_field_names(raw_query.result_type)
 
     args = prepare_arguments(raw_query)
     if not insert_fields and not args:

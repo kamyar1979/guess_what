@@ -105,6 +105,7 @@ asyncio.run(main())
 
 Use generic-style calls with `db.method[Type](...)` to convert selected rows into Python objects or extract insert/update values from an object. Supported model types are:
 
+* `dict`
 * Python `dataclass` classes
 * Pydantic v2 models (`model_fields`)
 * Pydantic v1 models (`__fields__`)
@@ -145,6 +146,21 @@ class UserContact:
 
 contacts = db.get_users_columns_name_and_email[UserContact]()
 print(contacts)  # [UserContact(name="Alice", email="alice@example.com")]
+```
+
+Use `dict` when you want named columns without defining a model. Dicts work for reads and writes:
+
+```python
+db.add_user[dict]({
+    "name": "Alice",
+    "email": "alice@example.com",
+    "status": "pending",
+})
+
+user = db.get_user_by_name[dict]("Alice")
+print(user)  # {"id": 1, "name": "Alice", "email": "alice@example.com", "status": "pending"}
+
+db.set_user_columns_status_by_name[dict]({"status": "active"}, "Alice")
 ```
 
 Pydantic models work the same way:

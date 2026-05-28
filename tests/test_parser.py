@@ -176,10 +176,32 @@ def test_create_query_insert_uses_dataclass_fields():
     )
 
 
+def test_create_query_insert_uses_dict_keys():
+    user = {"name": "Alice", "email": "alice@example.com", "status": "active"}
+
+    assert create_query("add_user", dict, user) == DigestedQuery(
+        "INSERT INTO users ( name,email,status ) VALUES (%s,%s,%s)",
+        ("Alice", "alice@example.com", "active"),
+        False,
+        False,
+    )
+
+
 def test_create_query_update_uses_dataclass_values_for_selected_columns():
     user = User("Alice", "alice@example.com", "inactive")
 
     assert create_query("set_user_columns_status_by_name", User, user, "Alice") == DigestedQuery(
+        "UPDATE users SET status = %s WHERE name = %s",
+        ("inactive", "Alice"),
+        False,
+        False,
+    )
+
+
+def test_create_query_update_uses_dict_values_for_selected_columns():
+    user = {"name": "Alice", "email": "alice@example.com", "status": "inactive"}
+
+    assert create_query("set_user_columns_status_by_name", dict, user, "Alice") == DigestedQuery(
         "UPDATE users SET status = %s WHERE name = %s",
         ("inactive", "Alice"),
         False,

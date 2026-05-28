@@ -129,6 +129,44 @@ def test_sqlite_database_insert_without_columns_uses_positional_values():
     )
 
 
+def test_sqlite_database_dict_insert_select_and_update():
+    conn = sqlite3.connect(":memory:")
+    conn.execute(
+        """
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            status TEXT NOT NULL
+        )
+        """
+    )
+
+    db = Database(conn)
+
+    db.add_user[dict]({
+        "name": "Alice",
+        "email": "alice@example.com",
+        "status": "pending",
+    })
+
+    assert db.get_user_by_name[dict]("Alice") == {
+        "id": 1,
+        "name": "Alice",
+        "email": "alice@example.com",
+        "status": "pending",
+    }
+
+    db.set_user_columns_status_by_name[dict](
+        {"status": "active"},
+        "Alice",
+    )
+
+    assert db.get_users_columns_name_and_status[dict]() == [
+        {"name": "Alice", "status": "active"},
+    ]
+
+
 def test_sqlite_database_generic_dataclass_projection():
     conn = sqlite3.connect(":memory:")
     conn.execute(
