@@ -1,6 +1,6 @@
 [project]
 name = "guess-what"
-version = "1.0.1"
+version = "1.1.0"
 description = "A dynamic SQL interceptor and micro-ORM for Python based on semantic method names."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -9,6 +9,10 @@ dependencies = [
     "psycopg2-binary>=2.9.12",
     "aiopg>=1.4.0"
 ]
+
+[project.urls]
+Homepage = "https://github.com/kamyar1979/guess_what"
+Repository = "https://github.com/kamyar1979/guess_what"
 
 [build-system]
 requires = ["setuptools>=61"]

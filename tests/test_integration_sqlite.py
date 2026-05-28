@@ -51,6 +51,10 @@ def test_sqlite_database_dynamic_methods_end_to_end():
         "Alice",
         "pending",
     )
+    assert db.get_user_columns_name_and_status(email="alice@example.com") == (
+        "Alice",
+        "pending",
+    )
 
     db.set_user_columns_status_by_email("active", "alice@example.com")
     db.set_user_columns_status_by_email(email="bob@example.com", status="pending")
@@ -60,7 +64,7 @@ def test_sqlite_database_dynamic_methods_end_to_end():
     ]
     assert db.get_user_columns_name_by_status(status="pending") == ("Bob",)
 
-    db.delete_user_by_email("bob@example.com")
+    db.delete_user(email="bob@example.com")
 
     assert db.get_users_columns_name_and_status() == [("Alice", "active")]
     assert db.get_user_by_email("bob@example.com") is None
@@ -165,6 +169,83 @@ def test_sqlite_database_insert_with_kwargs():
         ("Alice", "pending"),
         ("Bob", "active"),
     ]
+
+
+def test_sqlite_database_select_infers_conditions_from_kwargs_without_by():
+    conn = sqlite3.connect(":memory:")
+    conn.execute(
+        """
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            status TEXT NOT NULL,
+            role TEXT NOT NULL
+        )
+        """
+    )
+
+    db = Database(conn)
+
+    db.add_user_columns_name_and_email_and_status_and_role(
+        "Alice",
+        "alice@example.com",
+        "active",
+        "admin",
+    )
+    db.add_user_columns_name_and_email_and_status_and_role(
+        "Bob",
+        "bob@example.com",
+        "pending",
+        "member",
+    )
+
+    assert db.get_user(name="Alice") == (
+        1,
+        "Alice",
+        "alice@example.com",
+        "active",
+        "admin",
+    )
+    assert db.get_user_columns_email_and_role(status="pending", name="Bob") == (
+        "bob@example.com",
+        "member",
+    )
+
+
+def test_sqlite_database_delete_infers_conditions_from_kwargs_without_by():
+    conn = sqlite3.connect(":memory:")
+    conn.execute(
+        """
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            status TEXT NOT NULL,
+            role TEXT NOT NULL
+        )
+        """
+    )
+
+    db = Database(conn)
+
+    db.add_user_columns_name_and_email_and_status_and_role(
+        "Alice",
+        "alice@example.com",
+        "active",
+        "admin",
+    )
+    db.add_user_columns_name_and_email_and_status_and_role(
+        "Bob",
+        "bob@example.com",
+        "pending",
+        "member",
+    )
+
+    db.delete_user(status="pending", role="member")
+
+    assert db.get_users_columns_name_and_status() == [("Alice", "active")]
+    assert db.get_user_by_name("Bob") is None
 
 
 def test_sqlite_database_dict_insert_select_and_update():
@@ -274,9 +355,13 @@ def test_sqlite_database_supports_multiple_conditions_and_direct_execute():
         "Alice",
         "alice@example.com",
     )
+    assert db.get_user_columns_name_and_email(status="active", role="admin") == (
+        "Alice",
+        "alice@example.com",
+    )
     assert db.get_users_columns_name_by_status_and_role("active", "member") == [("Bob",)]
 
-    db.delete_user_by_status_and_role(role="member", status="inactive")
+    db.delete_user(status="inactive", role="member")
 
     assert db.get_users_columns_name_by_status_and_role("inactive", "member") == []
 

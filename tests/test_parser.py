@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import pytest
 from guess.model import Clause, DigestedQuery, RawQuery
-from guess.parser import parse_function_to_query, create_query
+from guess.parser import parse_function_to_query, create_query, get_conditions, prepare_kwargs
 
 
 @dataclass
@@ -10,6 +10,23 @@ class User:
     name: str
     email: str
     status: str
+
+
+def test_conditions_are_returned_as_ordered_tuple():
+    explicit = RawQuery(Clause.SELECT, "users", conditions=["name", "status"])
+    update = RawQuery(Clause.UPDATE, "users", conditions=["id", "status"])
+    inferred = RawQuery(Clause.SELECT, "users", kwargs={"status": "pending", "role": "admin"})
+
+    assert get_conditions(explicit) == ("name", "status")
+    assert get_conditions(update) == ("id", "status")
+    assert get_conditions(inferred) == ("status", "role")
+    assert isinstance(get_conditions(explicit), tuple)
+
+
+def test_prepare_kwargs_accepts_ordered_tuple_names():
+    query = RawQuery(Clause.SELECT, "users", kwargs={"status": "pending", "name": "Alice"})
+
+    assert prepare_kwargs(query, ("name", "status")) == ("Alice", "pending")
 
 
 def test_parse_func_name_select():
@@ -125,6 +142,18 @@ def test_create_query_select():
         False,
         False,
     )
+    assert create_query("get_user", None, id=123) == DigestedQuery(
+        "SELECT * FROM users WHERE id = %s",
+        (123,),
+        False,
+        False,
+    )
+    assert create_query("get_user_columns_name_and_email", None, status="pending", role="admin") == DigestedQuery(
+        "SELECT name,email FROM users WHERE status = %s AND role = %s",
+        ("pending", "admin"),
+        False,
+        False,
+    )
 
 
 def test_create_query_select_rejects_mixed_positional_and_keyword_args():
@@ -142,9 +171,13 @@ def test_create_query_select_rejects_unknown_keyword_args():
         create_query("get_user_by_name", None, name="test", role="admin")
 
 
-def test_create_query_select_rejects_kwargs_without_conditions():
-    with pytest.raises(ValueError, match="Keyword arguments require fields or conditions"):
-        create_query("get_users", None, status="pending")
+def test_create_query_select_infers_conditions_from_kwargs_without_by():
+    assert create_query("get_users", None, status="pending") == DigestedQuery(
+        "SELECT * FROM users WHERE status = %s",
+        ("pending",),
+        True,
+        False,
+    )
 
 
 def test_create_query_select_rejects_ambiguous_duplicate_names_with_kwargs():
@@ -200,6 +233,12 @@ def test_create_query_delete():
     assert create_query("delete_user_by_status_and_role", None, role="member", status="inactive") == DigestedQuery(
         "DELETE FROM users WHERE status = %s AND role = %s",
         ("inactive", "member"),
+        False,
+        False,
+    )
+    assert create_query("delete_user", None, id=123) == DigestedQuery(
+        "DELETE FROM users WHERE id = %s",
+        (123,),
         False,
         False,
     )

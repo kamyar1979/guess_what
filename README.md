@@ -19,13 +19,13 @@ Stop writing repetitive boilerplate queries for simple CRUD operations. Just **g
 
 ## 📦 Installation
 
-Ensure you have [uv](https://github.com/astral-sh/uv) or `pip` installed:
+Install the package from PyPI:
 
 ```bash
-uv pip install .
+pip install guess-what
 ```
 
-For development and running tests, install with development dependencies:
+For local development and running tests from source, install the development dependencies:
 
 ```bash
 uv sync --group dev
@@ -62,8 +62,14 @@ print(users)  # [(1, "Alice", "alice@example.com", None), (2, "Bob", ...)]
 user_info = db.get_user_columns_name_and_email_by_id(1)
 print(user_info)  # ("Alice", "alice@example.com")
 
+# When using keyword arguments, SELECT and DELETE can infer conditions without `_by_`.
+user_info = db.get_user_columns_name_and_email(email="alice@example.com")
+
 # 5. Update data (UPDATE users SET status = ? WHERE id = ?)
 db.set_user_columns_status_by_id("active", 1)
+
+# DELETE FROM users WHERE email = ?
+db.delete_user(email="bob@example.com")
 ```
 
 ### 2. Asynchronous Usage
@@ -223,13 +229,25 @@ db.add_user_columns_name_and_email(email="alice@example.com", name="Alice")
 db.delete_user_by_status_and_role(role="member", status="inactive")
 ```
 
+For SELECT and DELETE, keyword arguments can also define conditions directly, so `_by_...` is optional when using kwargs. This is equivalent to the `_by_...` form, but shorter for common lookups and deletes:
+
+```python
+db.get_user(id=123)
+db.get_users(status="pending")
+db.get_user_columns_name_and_email(status="active", role="admin")
+db.delete_user(id=123)
+db.delete_user(status="inactive", role="member")
+```
+
 ### Examples:
 *   `get_users` ➡️ `SELECT * FROM users`
 *   `get_user_by_id` ➡️ `SELECT * FROM users WHERE id = %s`
+*   `get_user(id=123)` ➡️ `SELECT * FROM users WHERE id = %s`
 *   `get_user_columns_name_and_email_by_id` ➡️ `SELECT name,email FROM users WHERE id = %s`
 *   `add_user("Alice", "alice@example.com", "active")` ➡️ `INSERT INTO users VALUES (%s,%s,%s)`
 *   `set_user_columns_status_by_id` ➡️ `UPDATE users SET status = %s WHERE id = %s`
 *   `delete_user_by_id` ➡️ `DELETE FROM users WHERE id = %s`
+*   `delete_user(id=123)` ➡️ `DELETE FROM users WHERE id = %s`
 *   `call_refresh_cache("users", 10)` ➡️ `refresh_cache(%s,%s)`
 
 ---
