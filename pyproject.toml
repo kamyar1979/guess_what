@@ -1,6 +1,7 @@
 [project]
 name = "guess-what"
-version = "0.1.0"
+version = "1.0.1"
+description = "A dynamic SQL interceptor and micro-ORM for Python based on semantic method names."
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [

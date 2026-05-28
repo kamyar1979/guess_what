@@ -16,8 +16,8 @@ class Interceptor:
         self.result_type = item
         return self
 
-    def __call__(self, *args):
-        if query := create_query(self._func_name, self.result_type, *args):
+    def __call__(self, *args, **kwargs):
+        if query := create_query(self._func_name, self.result_type, *args, **kwargs):
             return self.db.execute(query.text, params=query.args, is_list=query.is_list,
                                    is_async=query.is_async or self.db.is_async, result_type=self.result_type)
         return None

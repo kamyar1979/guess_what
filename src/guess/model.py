@@ -20,6 +20,7 @@ class RawQuery:
     is_list_result: bool = False
     is_async_func: bool = False
     args: Optional[tuple[Any,...]] = None
+    kwargs: Optional[dict[str, Any]] = None
     result_type: Optional[type] = None
 
 @dataclass

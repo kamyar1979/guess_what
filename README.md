@@ -52,7 +52,7 @@ db.add_user_columns_name_and_email("Alice", "alice@example.com")
 db.add_user_columns_name_and_email("Bob", "bob@example.com")
 
 # You can also omit column names when you provide the full row values in table order.
-db.add_user(1, "Cara", "cara@example.com", "pending")
+# For this users table, prefer named columns because id is generated automatically.
 
 # 3. Retrieve all users (SELECT * FROM users)
 users = db.get_users()
@@ -136,6 +136,17 @@ db.set_user_columns_status_by_name[User](
 )
 ```
 
+For INSERT and UPDATE, you can pass the object as a keyword named after the singular table. In this form, `guess-what` infers the model type from the object, so the generic type parameter is optional:
+
+```python
+db.add_user(user=User("Alice", "alice@example.com", "pending"))
+
+db.set_user_columns_status_by_name(
+    user=User("Alice", "alice@example.com", "active"),
+    name="Alice",
+)
+```
+
 For projected results, use a model that matches the selected columns:
 
 ```python
@@ -157,10 +168,17 @@ db.add_user[dict]({
     "status": "pending",
 })
 
+db.add_user(user={
+    "name": "Bob",
+    "email": "bob@example.com",
+    "status": "active",
+})
+
 user = db.get_user_by_name[dict]("Alice")
 print(user)  # {"id": 1, "name": "Alice", "email": "alice@example.com", "status": "pending"}
 
 db.set_user_columns_status_by_name[dict]({"status": "active"}, "Alice")
+db.set_user_columns_status_by_name[dict]({"status": "archived"}, name="Alice")
 ```
 
 Pydantic models work the same way:
@@ -195,6 +213,15 @@ For database calls, use:
 *   **`[table]`**: Singular form of the database table (automatically pluralized at runtime using inflection). E.g., `user` -> `users`. `call_...` targets are not pluralized.
 *   **`[fields]`** *(optional)*: Underscore-separated column list joined with `_and_`. E.g., `name_and_email` -> `name, email`.
 *   **`[conditions]`** *(optional)*: Underscore-separated filter columns joined with `_and_`. E.g., `status_and_role` -> `WHERE status = %s AND role = %s`.
+
+Keyword arguments are supported for SELECT, UPDATE, INSERT, and DELETE. Values are ordered by the parsed method name, so caller order does not matter:
+
+```python
+db.get_user_by_name_and_status(status="pending", name="Alice")
+db.set_user_columns_status_by_name(name="Alice", status="active")
+db.add_user_columns_name_and_email(email="alice@example.com", name="Alice")
+db.delete_user_by_status_and_role(role="member", status="inactive")
+```
 
 ### Examples:
 *   `get_users` ➡️ `SELECT * FROM users`

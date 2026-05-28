@@ -60,7 +60,43 @@ def get_value(obj: Any, field_name: str) -> Any:
     return getattr(obj, field_name)
 
 
-def parse_func_name(func_name: str, result_type: Optional[type] = None, *args) -> Optional[RawQuery]:
+def split_model_kwargs(raw_query: RawQuery) -> tuple[Any | None, type | None, dict[str, Any]]:
+    kwargs = dict(raw_query.kwargs or {})
+    name = inflection.singularize(raw_query.target)
+    if name in kwargs:
+        obj = kwargs.pop(name)
+        result_type = raw_query.result_type or (dict if isinstance(obj, dict) else type(obj))
+        return obj, result_type, kwargs
+    return None, raw_query.result_type, kwargs
+
+
+def prepare_kwargs(raw_query: RawQuery, names: list[str], *, reject_duplicates: bool = False) -> tuple[Any, ...]:
+    if raw_query.args and raw_query.kwargs:
+        raise ValueError("You can not use positional and named arguments at the same time here!")
+
+    if not raw_query.kwargs:
+        return raw_query.args or ()
+
+    if reject_duplicates:
+        duplicate_names = set(raw_query.fields or []) & set(raw_query.conditions or [])
+        if duplicate_names:
+            raise ValueError(f"Keyword arguments are ambiguous for duplicate names: {','.join(sorted(duplicate_names))}")
+
+    if not names:
+        raise ValueError("Keyword arguments require fields or conditions")
+
+    missing = [k for k in names if k not in raw_query.kwargs]
+    if missing:
+        raise ValueError(f"Missing keyword arguments: {','.join(missing)}")
+
+    unknown = [k for k in raw_query.kwargs if k not in names]
+    if unknown:
+        raise ValueError(f"Unknown keyword arguments: {','.join(unknown)}")
+
+    return tuple(raw_query.kwargs[k] for k in names)
+
+
+def parse_function_to_query(func_name: str, result_type: Optional[type] = None, *args, **kwargs) -> Optional[RawQuery]:
     if m := regex.match(func_name):
         clause = clause_mapping[m.group("clause")]
         target = m.group("target") if clause == Clause.CALL else inflection.pluralize(m.group("target"))
@@ -71,12 +107,77 @@ def parse_func_name(func_name: str, result_type: Optional[type] = None, *args) -
                         clause != Clause.CALL and inflection.pluralize(m.group("target")) == m.group("target"),
                         m.group("async") == "async_",
                         args,
+                        kwargs,
                         result_type
                         )
     return None
 
 
 def prepare_arguments(raw_query: RawQuery) -> tuple[Any, ...]:
+    if raw_query.clause == Clause.SELECT:
+        return prepare_kwargs(raw_query, raw_query.conditions or [], reject_duplicates=True)
+
+    if raw_query.clause == Clause.DELETE:
+        return prepare_kwargs(raw_query, raw_query.conditions or [], reject_duplicates=True)
+
+    if raw_query.clause == Clause.UPDATE and raw_query.kwargs:
+        obj, result_type, remaining_kwargs = split_model_kwargs(raw_query)
+        if not result_type:
+            return prepare_kwargs(raw_query, (raw_query.fields or []) + (raw_query.conditions or []), reject_duplicates=True)
+
+        if obj is None and len(raw_query.args or []) > 1:
+            raise ValueError("When using named arguments with typed values, the values object can be the only positional argument.")
+        if obj is not None and raw_query.args:
+            raise ValueError("You can not provide typed values both positionally and by keyword.")
+
+        duplicate_names = set(raw_query.fields or []) & set(raw_query.conditions or [])
+        if duplicate_names:
+            raise ValueError(f"Keyword arguments are ambiguous for duplicate names: {','.join(sorted(duplicate_names))}")
+
+        obj_args = prepare_arguments(RawQuery(
+            raw_query.clause,
+            raw_query.target,
+            raw_query.fields,
+            None,
+            raw_query.is_list_result,
+            raw_query.is_async_func,
+            (obj,) if obj is not None else raw_query.args,
+            None,
+            result_type,
+        ))
+        condition_args = prepare_kwargs(RawQuery(
+            raw_query.clause,
+            raw_query.target,
+            None,
+            raw_query.conditions,
+            raw_query.is_list_result,
+            raw_query.is_async_func,
+            None,
+            remaining_kwargs,
+            None,
+        ), raw_query.conditions or [])
+        return obj_args + condition_args
+
+    if raw_query.clause == Clause.INSERT and raw_query.kwargs:
+        obj, result_type, remaining_kwargs = split_model_kwargs(raw_query)
+        if obj is not None:
+            if remaining_kwargs:
+                raise ValueError(f"Unknown keyword arguments: {','.join(remaining_kwargs)}")
+            return prepare_arguments(RawQuery(
+                raw_query.clause,
+                raw_query.target,
+                raw_query.fields,
+                raw_query.conditions,
+                raw_query.is_list_result,
+                raw_query.is_async_func,
+                (obj,),
+                None,
+                result_type,
+            ))
+        if raw_query.result_type:
+            raise ValueError("Keyword arguments are not supported with typed insert values")
+        return prepare_kwargs(raw_query, raw_query.fields or list(raw_query.kwargs.keys()))
+
     if raw_query.result_type:
         obj = raw_query.args[0]
         if raw_query.fields:
@@ -97,7 +198,7 @@ def create_select_query(raw_query: RawQuery) -> DigestedQuery:
     conditions = f" WHERE {' AND '.join(f'{f} = %s' for f in raw_query.conditions)}" if raw_query.conditions else ""
     fields_str = ",".join(raw_query.fields) if raw_query.fields else "*"
     query_text = f"SELECT {fields_str} FROM {raw_query.target}{conditions}"
-    return DigestedQuery(query_text, raw_query.args, raw_query.is_list_result, raw_query.is_async_func)
+    return DigestedQuery(query_text, prepare_arguments(raw_query), raw_query.is_list_result, raw_query.is_async_func)
 
 
 @register_clause(Clause.UPDATE)
@@ -114,11 +215,19 @@ def create_update_query(raw_query: RawQuery) -> DigestedQuery:
 @register_clause(Clause.INSERT)
 def create_insert_query(raw_query: RawQuery) -> DigestedQuery:
     insert_fields = raw_query.fields
+    model_obj, model_type, remaining_kwargs = split_model_kwargs(raw_query)
     if not insert_fields and raw_query.result_type:
         if raw_query.result_type == dict:
-            insert_fields = list(raw_query.args[0].keys())
+            insert_fields = list((model_obj or raw_query.args[0]).keys())
         else:
             insert_fields = get_field_names(raw_query.result_type)
+    if not insert_fields and model_obj is not None:
+        if model_type == dict:
+            insert_fields = list(model_obj.keys())
+        else:
+            insert_fields = get_field_names(model_type)
+    if not insert_fields and raw_query.kwargs:
+        insert_fields = list(remaining_kwargs.keys())
 
     args = prepare_arguments(raw_query)
     if not insert_fields and not args:
@@ -134,7 +243,7 @@ def create_insert_query(raw_query: RawQuery) -> DigestedQuery:
 def create_delete_query(raw_query: RawQuery) -> DigestedQuery:
     conditions = f" WHERE {' AND '.join(f'{f} = %s' for f in raw_query.conditions)}" if raw_query.conditions else ""
     query_text = f"DELETE FROM {raw_query.target}{conditions}"
-    return DigestedQuery(query_text, raw_query.args, raw_query.is_list_result, raw_query.is_async_func)
+    return DigestedQuery(query_text, prepare_arguments(raw_query), raw_query.is_list_result, raw_query.is_async_func)
 
 
 @register_clause(Clause.CALL)
@@ -143,7 +252,7 @@ def create_call_query(raw_query: RawQuery) -> DigestedQuery:
     return DigestedQuery(query_text, raw_query.args, raw_query.is_list_result, raw_query.is_async_func)
 
 
-def create_query(func_name: str, result_type: Optional[type] = None, *args) -> Optional[DigestedQuery]:
-    if q := parse_func_name(func_name, result_type, *args):
+def create_query(func_name: str, result_type: Optional[type] = None, *args, **kwargs) -> Optional[DigestedQuery]:
+    if q := parse_function_to_query(func_name, result_type, *args, **kwargs):
         return clause_handlers[q.clause](q)
     return None
