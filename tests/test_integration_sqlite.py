@@ -106,6 +106,29 @@ def test_sqlite_database_dataclass_insert_select_and_update():
     }
 
 
+def test_sqlite_database_insert_without_columns_uses_positional_values():
+    conn = sqlite3.connect(":memory:")
+    conn.execute(
+        """
+        CREATE TABLE users (
+            name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            status TEXT NOT NULL
+        )
+        """
+    )
+
+    db = Database(conn)
+
+    db.add_user("Alice", "alice@example.com", "active")
+
+    assert db.get_user_by_email("alice@example.com") == (
+        "Alice",
+        "alice@example.com",
+        "active",
+    )
+
+
 def test_sqlite_database_generic_dataclass_projection():
     conn = sqlite3.connect(":memory:")
     conn.execute(

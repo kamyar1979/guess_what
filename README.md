@@ -51,6 +51,9 @@ db = Database(conn)
 db.add_user_columns_name_and_email("Alice", "alice@example.com")
 db.add_user_columns_name_and_email("Bob", "bob@example.com")
 
+# You can also omit column names when you provide the full row values in table order.
+db.add_user(1, "Cara", "cara@example.com", "pending")
+
 # 3. Retrieve all users (SELECT * FROM users)
 users = db.get_users()
 print(users)  # [(1, "Alice", "alice@example.com", None), (2, "Bob", ...)]
@@ -181,6 +184,7 @@ For database calls, use:
 *   `get_users` ➡️ `SELECT * FROM users`
 *   `get_user_by_id` ➡️ `SELECT * FROM users WHERE id = %s`
 *   `get_user_columns_name_and_email_by_id` ➡️ `SELECT name,email FROM users WHERE id = %s`
+*   `add_user("Alice", "alice@example.com", "active")` ➡️ `INSERT INTO users VALUES (%s,%s,%s)`
 *   `set_user_columns_status_by_id` ➡️ `UPDATE users SET status = %s WHERE id = %s`
 *   `delete_user_by_id` ➡️ `DELETE FROM users WHERE id = %s`
 *   `call_refresh_cache("users", 10)` ➡️ `refresh_cache(%s,%s)`

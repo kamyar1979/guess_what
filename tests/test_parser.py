@@ -143,6 +143,12 @@ def test_create_query_insert():
         False,
         False,
     )
+    assert create_query("add_user", None, "Alice", "alice@example.com", "active") == DigestedQuery(
+        "INSERT INTO users VALUES (%s,%s,%s)",
+        ("Alice", "alice@example.com", "active"),
+        False,
+        False,
+    )
 
 
 def test_create_query_delete():
@@ -187,5 +193,5 @@ def test_create_query_update_requires_columns():
 
 
 def test_create_query_insert_requires_columns():
-    with pytest.raises(ValueError, match="INSERT queries require columns"):
+    with pytest.raises(ValueError, match="INSERT queries require columns or values"):
         create_query("add_user")

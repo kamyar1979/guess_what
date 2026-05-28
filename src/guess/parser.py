@@ -106,12 +106,14 @@ def create_insert_query(raw_query: RawQuery) -> DigestedQuery:
     if not insert_fields and raw_query.result_type:
         insert_fields = get_field_names(raw_query.result_type)
 
-    if not insert_fields:
-        raise ValueError("INSERT queries require columns")
+    args = prepare_arguments(raw_query)
+    if not insert_fields and not args:
+        raise ValueError("INSERT queries require columns or values")
 
-    columns = f"( {','.join(insert_fields)} )"
-    query_text = f"INSERT INTO {raw_query.target} {columns} VALUES ({','.join('%s' for _ in insert_fields)})"
-    return DigestedQuery(query_text, prepare_arguments(raw_query), raw_query.is_list_result, raw_query.is_async_func)
+    columns = f"( {','.join(insert_fields)} ) " if insert_fields else ""
+    value_count = len(insert_fields) if insert_fields else len(args)
+    query_text = f"INSERT INTO {raw_query.target} {columns}VALUES ({','.join('%s' for _ in range(value_count))})"
+    return DigestedQuery(query_text, args, raw_query.is_list_result, raw_query.is_async_func)
 
 
 @register_clause(Clause.DELETE)
