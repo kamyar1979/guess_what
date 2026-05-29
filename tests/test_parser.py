@@ -12,6 +12,12 @@ class User:
     status: str
 
 
+@dataclass
+class ExternalUser:
+    user_id: int
+    name: str
+
+
 def test_conditions_are_returned_as_ordered_tuple():
     explicit = RawQuery(Clause.SELECT, "users", conditions=["name", "status"])
     update = RawQuery(Clause.UPDATE, "users", conditions=["id", "status"])
@@ -148,6 +154,18 @@ def test_create_query_select():
         False,
         False,
     )
+    assert create_query("get_user", None, 123) == DigestedQuery(
+        "SELECT * FROM users WHERE id = %s",
+        (123,),
+        False,
+        False,
+    )
+    assert create_query("get_user", ExternalUser, 123) == DigestedQuery(
+        "SELECT * FROM users WHERE user_id = %s",
+        (123,),
+        False,
+        False,
+    )
     assert create_query("get_user_columns_name_and_email", None, status="pending", role="admin") == DigestedQuery(
         "SELECT name,email FROM users WHERE status = %s AND role = %s",
         ("pending", "admin"),
@@ -183,6 +201,11 @@ def test_create_query_select_infers_conditions_from_kwargs_without_by():
 def test_create_query_select_rejects_ambiguous_duplicate_names_with_kwargs():
     with pytest.raises(ValueError, match="Keyword arguments are ambiguous for duplicate names: name"):
         create_query("get_user_columns_name_by_name", None, name="test")
+
+
+def test_create_query_select_rejects_primary_key_shorthand_without_pk_field():
+    with pytest.raises(ValueError, match="Could not infer primary key field"):
+        create_query("get_user", User, 123)
 
 
 def test_create_query_update():

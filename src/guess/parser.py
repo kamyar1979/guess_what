@@ -7,6 +7,7 @@ import inflection
 from guess.model import Clause, clause_mapping, RawQuery, DigestedQuery
 
 clause_handlers = {}
+PRIMARY_KEY_PATTERN = r"^(id|{entity}_id)$"
 
 
 def register_clause(clause: Clause):
@@ -17,7 +18,7 @@ def register_clause(clause: Clause):
     return decorate
 
 
-pattern = rf"""
+FUNC_NAME_PATTERN = rf"""
 ^
 (?P<async>async_)?
 (?P<clause>{'|'.join(clause_mapping.keys())})
@@ -29,7 +30,7 @@ _
 $
 """
 
-regex = re.compile(pattern, re.VERBOSE)
+regex = re.compile(FUNC_NAME_PATTERN, re.VERBOSE)
 
 
 def get_field_names(model) -> list[str]:
@@ -51,7 +52,7 @@ def get_field_names(model) -> list[str]:
     if hasattr(cls, "__fields__"):
         return list(cls.__fields__.keys())
 
-    raise TypeError(f"Unsupported type: {cls}")
+    raise TypeError(f"Unsupported type: {cls.__name__}")
 
 
 def get_value(obj: Any, field_name: str) -> Any:
@@ -96,12 +97,42 @@ def prepare_kwargs(raw_query: RawQuery, names: tuple[str, ...], *, reject_duplic
     return tuple(raw_query.kwargs[k] for k in names)
 
 
+def get_pk_field(raw_query: RawQuery) -> str | None:
+    if not raw_query.result_type or raw_query.result_type == dict:
+        return "id"
+
+    entity = inflection.singularize(raw_query.target)
+    field_names = get_field_names(raw_query.result_type)
+    pk_pattern = re.compile(PRIMARY_KEY_PATTERN.format(entity=re.escape(entity)))
+
+    for field_name in field_names:
+        if pk_pattern.match(field_name):
+            return field_name
+    return None
+
+
+def get_primary_key_condition(raw_query: RawQuery) -> tuple[str, ...]:
+    if (
+        raw_query.clause != Clause.SELECT
+        or raw_query.is_list_result
+        or raw_query.kwargs
+        or raw_query.conditions
+        or len(raw_query.args or ()) != 1
+    ):
+        return ()
+
+    pk_field = get_pk_field(raw_query)
+    if not pk_field:
+        raise ValueError("Could not infer primary key field for single-argument SELECT")
+    return (pk_field,)
+
+
 def get_conditions(raw_query: RawQuery) -> tuple[str, ...]:
     if raw_query.conditions:
         return tuple(raw_query.conditions)
     if raw_query.clause in (Clause.SELECT, Clause.DELETE) and raw_query.kwargs:
         return tuple(raw_query.kwargs.keys())
-    return ()
+    return get_primary_key_condition(raw_query)
 
 
 def parse_function_to_query(func_name: str, result_type: Optional[type] = None, *args, **kwargs) -> Optional[RawQuery]:
