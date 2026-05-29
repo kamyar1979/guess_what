@@ -42,8 +42,8 @@ class Database:
         database = Database(self.conn, is_async=self.is_async)
         return Interceptor(name, database)
 
-    def prepare_result(self,
-                       result: list[dict | tuple],
+    @staticmethod
+    def prepare_result(result: list[dict | tuple],
                        result_type: Optional[type],
                        columns: list[str],
                        is_list: bool):

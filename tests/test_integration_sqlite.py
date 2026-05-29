@@ -16,6 +16,12 @@ class UserContact:
     email: str
 
 
+@dataclass
+class ExternalUser:
+    user_id: int
+    name: str
+
+
 def test_sqlite_database_dynamic_methods_end_to_end():
     conn = sqlite3.connect(":memory:")
     conn.execute(
@@ -207,10 +213,36 @@ def test_sqlite_database_select_infers_conditions_from_kwargs_without_by():
         "active",
         "admin",
     )
+    assert db.get_user(2) == (
+        2,
+        "Bob",
+        "bob@example.com",
+        "pending",
+        "member",
+    )
     assert db.get_user_columns_email_and_role(status="pending", name="Bob") == (
         "bob@example.com",
         "member",
     )
+
+
+def test_sqlite_database_single_select_infers_entity_id_condition_from_model():
+    conn = sqlite3.connect(":memory:")
+    conn.execute(
+        """
+        CREATE TABLE users (
+            user_id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL
+        )
+        """
+    )
+
+    db = Database(conn)
+
+    db.add_user_columns_user_id_and_name(10, "Alice")
+    db.add_user_columns_user_id_and_name(20, "Bob")
+
+    assert db.get_user[ExternalUser](20) == ExternalUser(20, "Bob")
 
 
 def test_sqlite_database_delete_infers_conditions_from_kwargs_without_by():

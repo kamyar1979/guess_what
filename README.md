@@ -65,6 +65,9 @@ print(user_info)  # ("Alice", "alice@example.com")
 # When using keyword arguments, SELECT and DELETE can infer conditions without `_by_`.
 user_info = db.get_user_columns_name_and_email(email="alice@example.com")
 
+# For single-row SELECTs, one positional value is treated as the primary key.
+user = db.get_user(1)
+
 # 5. Update data (UPDATE users SET status = ? WHERE id = ?)
 db.set_user_columns_status_by_id("active", 1)
 
@@ -239,10 +242,18 @@ db.delete_user(id=123)
 db.delete_user(status="inactive", role="member")
 ```
 
+For single-row SELECTs, one positional argument can also imply the primary key condition. Without a typed model, `guess-what` uses `id`. With a typed dataclass or Pydantic model, it looks for `id` or an entity-specific key such as `user_id`; if neither exists, it raises an error instead of guessing the wrong column:
+
+```python
+db.get_user(123)        # SELECT * FROM users WHERE id = %s
+db.get_user[User](123)  # Uses User.id or User.user_id
+```
+
 ### Examples:
 *   `get_users` ➡️ `SELECT * FROM users`
 *   `get_user_by_id` ➡️ `SELECT * FROM users WHERE id = %s`
 *   `get_user(id=123)` ➡️ `SELECT * FROM users WHERE id = %s`
+*   `get_user(123)` ➡️ `SELECT * FROM users WHERE id = %s`
 *   `get_user_columns_name_and_email_by_id` ➡️ `SELECT name,email FROM users WHERE id = %s`
 *   `add_user("Alice", "alice@example.com", "active")` ➡️ `INSERT INTO users VALUES (%s,%s,%s)`
 *   `set_user_columns_status_by_id` ➡️ `UPDATE users SET status = %s WHERE id = %s`
