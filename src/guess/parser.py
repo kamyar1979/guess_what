@@ -153,6 +153,13 @@ def parse_function_to_query(func_name: str, result_type: Optional[type] = None, 
 
 
 def prepare_arguments(raw_query: RawQuery) -> tuple[Any, ...]:
+    if raw_query.clause == Clause.CALL:
+        if raw_query.args and raw_query.kwargs:
+            raise ValueError("You can not use positional and named arguments at the same time here!")
+        if raw_query.kwargs:
+            return tuple(raw_query.kwargs.values())
+        return raw_query.args or ()
+
     if raw_query.clause == Clause.SELECT:
         return prepare_kwargs(raw_query, get_conditions(raw_query), reject_duplicates=True)
 
@@ -294,8 +301,13 @@ def create_delete_query(raw_query: RawQuery) -> DigestedQuery:
 
 @register_clause(Clause.CALL)
 def create_call_query(raw_query: RawQuery) -> DigestedQuery:
-    query_text = f"{raw_query.target}({','.join('%s' for _ in raw_query.args or [])})"
-    return DigestedQuery(query_text, raw_query.args, raw_query.is_list_result, raw_query.is_async_func)
+    args = prepare_arguments(raw_query)
+    if raw_query.kwargs:
+        placeholders = (f"{name} => %s" for name in raw_query.kwargs)
+    else:
+        placeholders = ("%s" for _ in args)
+    query_text = f"{raw_query.target}({','.join(placeholders)})"
+    return DigestedQuery(query_text, args, raw_query.is_list_result, raw_query.is_async_func)
 
 
 def create_query(func_name: str, result_type: Optional[type] = None, *args, **kwargs) -> Optional[DigestedQuery]:

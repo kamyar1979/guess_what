@@ -284,6 +284,17 @@ def test_create_query_call():
         False,
         False,
     )
+    assert create_query("call_refresh_cache", None, table="users", limit=10) == DigestedQuery(
+        "refresh_cache(table => %s,limit => %s)",
+        ("users", 10),
+        False,
+        False,
+    )
+
+
+def test_create_query_call_rejects_mixed_positional_and_keyword_args():
+    with pytest.raises(ValueError, match="positional and named arguments"):
+        create_query("call_refresh_cache", None, "users", limit=10)
 
 
 def test_create_query_insert_uses_dataclass_fields():
