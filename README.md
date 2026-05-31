@@ -249,6 +249,13 @@ db.get_user(123)        # SELECT * FROM users WHERE id = %s
 db.get_user[User](123)  # Uses User.id or User.user_id
 ```
 
+Database functions and stored procedures can also be called with positional or keyword arguments. Keyword arguments are rendered as named database function parameters, so this form requires database support for named function-call arguments:
+
+```python
+db.call_refresh_cache("users", 10)
+db.call_refresh_cache(table="users", limit=10)  # refresh_cache(table => %s,limit => %s)
+```
+
 ### Examples:
 *   `get_users` ➡️ `SELECT * FROM users`
 *   `get_user_by_id` ➡️ `SELECT * FROM users WHERE id = %s`
@@ -260,6 +267,7 @@ db.get_user[User](123)  # Uses User.id or User.user_id
 *   `delete_user_by_id` ➡️ `DELETE FROM users WHERE id = %s`
 *   `delete_user(id=123)` ➡️ `DELETE FROM users WHERE id = %s`
 *   `call_refresh_cache("users", 10)` ➡️ `refresh_cache(%s,%s)`
+*   `call_refresh_cache(table="users", limit=10)` ➡️ `refresh_cache(table => %s,limit => %s)`
 
 ---
 

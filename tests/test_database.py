@@ -70,6 +70,19 @@ def test_sync_database_call_clause_executes_with_args():
     assert result is None
 
 
+def test_sync_database_call_clause_executes_with_kwargs():
+    mock_conn = MagicMock()
+    mock_cursor = mock_conn.cursor.return_value
+
+    db = Database(mock_conn)
+    result = db.call_refresh_cache(table="users", limit=10)
+
+    mock_cursor.execute.assert_called_once_with("refresh_cache(table => %s,limit => %s)", ("users", 10))
+    mock_cursor.close.assert_called_once()
+    mock_conn.commit.assert_called_once()
+    assert result is None
+
+
 def test_sync_database_non_matching_method():
     mock_conn = MagicMock()
     db = Database(mock_conn)
