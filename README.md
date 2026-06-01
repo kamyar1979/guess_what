@@ -25,6 +25,13 @@ Install the package from PyPI:
 pip install guess-what
 ```
 
+`guess-what` does not install database drivers. Install the driver for the database you use:
+
+```bash
+pip install psycopg2-binary  # PostgreSQL example
+pip install mysql-connector-python  # MySQL example
+```
+
 For local development and running tests from source, install the development dependencies:
 
 ```bash
