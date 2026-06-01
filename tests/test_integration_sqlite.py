@@ -93,6 +93,7 @@ def test_sqlite_database_dataclass_insert_select_and_update():
 
     db.add_user[User](User("Alice", "alice@example.com", "pending"))
     db.add_user[User](user=User("Bob", "bob@example.com", "active"))
+    db.add_user(User("Cara", "cara@example.com", "archived"))
 
     assert db.get_user_by_name[User]("Alice") == User(
         "Alice",
@@ -102,6 +103,7 @@ def test_sqlite_database_dataclass_insert_select_and_update():
     assert db.get_users[User]() == [
         User("Alice", "alice@example.com", "pending"),
         User("Bob", "bob@example.com", "active"),
+        User("Cara", "cara@example.com", "archived"),
     ]
 
     db.set_user_columns_status_by_name[User](
@@ -111,6 +113,10 @@ def test_sqlite_database_dataclass_insert_select_and_update():
     db.set_user_columns_status_by_name[User](
         user=User("Bob", "bob@example.com", "pending"),
         name="Bob",
+    )
+    db.edit_user_columns_status_by_name(
+        User("Cara", "cara@example.com", "active"),
+        "Cara",
     )
 
     assert db.get_user_by_name[dict]("Alice") == {
@@ -124,6 +130,12 @@ def test_sqlite_database_dataclass_insert_select_and_update():
         "name": "Bob",
         "email": "bob@example.com",
         "status": "pending",
+    }
+    assert db.get_user_by_name[dict]("Cara") == {
+        "id": 3,
+        "name": "Cara",
+        "email": "cara@example.com",
+        "status": "active",
     }
 
 
@@ -300,6 +312,11 @@ def test_sqlite_database_dict_insert_select_and_update():
         "email": "alice@example.com",
         "status": "pending",
     })
+    db.add_user({
+        "name": "Bob",
+        "email": "bob@example.com",
+        "status": "active",
+    })
 
     assert db.get_user_by_name[dict]("Alice") == {
         "id": 1,
@@ -307,10 +324,20 @@ def test_sqlite_database_dict_insert_select_and_update():
         "email": "alice@example.com",
         "status": "pending",
     }
+    assert db.get_user_by_name[dict]("Bob") == {
+        "id": 2,
+        "name": "Bob",
+        "email": "bob@example.com",
+        "status": "active",
+    }
 
     db.set_user_columns_status_by_name[dict](
         {"status": "active"},
         "Alice",
+    )
+    db.set_user_columns_status_by_name(
+        {"status": "inactive"},
+        "Bob",
     )
     db.set_user_columns_status_by_name[dict](
         {"status": "archived"},
@@ -319,6 +346,7 @@ def test_sqlite_database_dict_insert_select_and_update():
 
     assert db.get_users_columns_name_and_status[dict]() == [
         {"name": "Alice", "status": "archived"},
+        {"name": "Bob", "status": "inactive"},
     ]
 
 

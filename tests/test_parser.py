@@ -18,6 +18,15 @@ class ExternalUser:
     name: str
 
 
+class PydanticLikeUser:
+    model_fields = {"name": None, "email": None, "status": None}
+
+    def __init__(self, name: str, email: str, status: str):
+        self.name = name
+        self.email = email
+        self.status = status
+
+
 def test_conditions_are_returned_as_ordered_tuple():
     explicit = RawQuery(Clause.SELECT, "users", conditions=["name", "status"])
     update = RawQuery(Clause.UPDATE, "users", conditions=["id", "status"])
@@ -306,6 +315,23 @@ def test_create_query_insert_uses_dataclass_fields():
         False,
         False,
     )
+    assert create_query("add_user", None, user) == DigestedQuery(
+        "INSERT INTO users ( name,email,status ) VALUES (%s,%s,%s)",
+        ("Alice", "alice@example.com", "active"),
+        False,
+        False,
+    )
+
+
+def test_create_query_insert_uses_pydantic_like_fields_without_generic():
+    user = PydanticLikeUser("Alice", "alice@example.com", "active")
+
+    assert create_query("add_user", None, user) == DigestedQuery(
+        "INSERT INTO users ( name,email,status ) VALUES (%s,%s,%s)",
+        ("Alice", "alice@example.com", "active"),
+        False,
+        False,
+    )
 
 
 def test_create_query_insert_uses_dataclass_keyword_named_after_table():
@@ -334,6 +360,12 @@ def test_create_query_insert_uses_dict_keys():
         False,
         False,
     )
+    assert create_query("add_user", None, user) == DigestedQuery(
+        "INSERT INTO users ( name,email,status ) VALUES (%s,%s,%s)",
+        ("Alice", "alice@example.com", "active"),
+        False,
+        False,
+    )
 
 
 def test_create_query_insert_uses_dict_keyword_named_after_table():
@@ -357,6 +389,23 @@ def test_create_query_update_uses_dataclass_values_for_selected_columns():
     user = User("Alice", "alice@example.com", "inactive")
 
     assert create_query("set_user_columns_status_by_name", User, user, "Alice") == DigestedQuery(
+        "UPDATE users SET status = %s WHERE name = %s",
+        ("inactive", "Alice"),
+        False,
+        False,
+    )
+    assert create_query("set_user_columns_status_by_name", None, user, "Alice") == DigestedQuery(
+        "UPDATE users SET status = %s WHERE name = %s",
+        ("inactive", "Alice"),
+        False,
+        False,
+    )
+
+
+def test_create_query_update_uses_pydantic_like_values_without_generic():
+    user = PydanticLikeUser("Alice", "alice@example.com", "inactive")
+
+    assert create_query("edit_user_columns_status_by_name", None, user, "Alice") == DigestedQuery(
         "UPDATE users SET status = %s WHERE name = %s",
         ("inactive", "Alice"),
         False,
@@ -399,6 +448,12 @@ def test_create_query_update_uses_dict_values_for_selected_columns():
     user = {"name": "Alice", "email": "alice@example.com", "status": "inactive"}
 
     assert create_query("set_user_columns_status_by_name", dict, user, "Alice") == DigestedQuery(
+        "UPDATE users SET status = %s WHERE name = %s",
+        ("inactive", "Alice"),
+        False,
+        False,
+    )
+    assert create_query("set_user_columns_status_by_name", None, user, "Alice") == DigestedQuery(
         "UPDATE users SET status = %s WHERE name = %s",
         ("inactive", "Alice"),
         False,
