@@ -112,7 +112,7 @@ asyncio.run(main())
 
 ### 3. Typed Dataclass/Pydantic Usage
 
-Use generic-style calls with `db.method[Type](...)` to convert selected rows into Python objects or extract insert/update values from an object. Supported model types are:
+Use generic-style calls with `db.method[Type](...)` to convert selected rows into Python objects or extract insert/update values from an object. For INSERT and UPDATE, `guess-what` can also infer the model type from a dict, dataclass, or Pydantic object passed as the first argument, so the generic type parameter is optional for common write calls. Supported model types are:
 
 * `dict`
 * Python `dataclass` classes
@@ -133,6 +133,7 @@ db = Database(conn)
 
 # INSERT INTO users (name,email,status) VALUES (?, ?, ?)
 db.add_user[User](User("Alice", "alice@example.com", "pending"))
+db.add_user(User("Bob", "bob@example.com", "active"))
 
 # SELECT * FROM users WHERE name = ?
 user = db.get_user_by_name[User]("Alice")
@@ -143,9 +144,13 @@ db.set_user_columns_status_by_name[User](
     User("Alice", "alice@example.com", "active"),
     "Alice",
 )
+db.set_user_columns_status_by_name(
+    User("Bob", "bob@example.com", "inactive"),
+    "Bob",
+)
 ```
 
-For INSERT and UPDATE, you can pass the object as a keyword named after the singular table. In this form, `guess-what` infers the model type from the object, so the generic type parameter is optional:
+For INSERT and UPDATE, you can also pass the object as a keyword named after the singular table. In this form, `guess-what` infers the model type from the object, so the generic type parameter is optional:
 
 ```python
 db.add_user(user=User("Alice", "alice@example.com", "pending"))
@@ -177,16 +182,23 @@ db.add_user[dict]({
     "status": "pending",
 })
 
-db.add_user(user={
+db.add_user({
     "name": "Bob",
     "email": "bob@example.com",
     "status": "active",
+})
+
+db.add_user(user={
+    "name": "Cara",
+    "email": "cara@example.com",
+    "status": "pending",
 })
 
 user = db.get_user_by_name[dict]("Alice")
 print(user)  # {"id": 1, "name": "Alice", "email": "alice@example.com", "status": "pending"}
 
 db.set_user_columns_status_by_name[dict]({"status": "active"}, "Alice")
+db.set_user_columns_status_by_name({"status": "inactive"}, "Bob")
 db.set_user_columns_status_by_name[dict]({"status": "archived"}, name="Alice")
 ```
 
@@ -263,7 +275,9 @@ db.call_refresh_cache(table="users", limit=10)  # refresh_cache(table => %s,limi
 *   `get_user(123)` ➡️ `SELECT * FROM users WHERE id = %s`
 *   `get_user_columns_name_and_email_by_id` ➡️ `SELECT name,email FROM users WHERE id = %s`
 *   `add_user("Alice", "alice@example.com", "active")` ➡️ `INSERT INTO users VALUES (%s,%s,%s)`
+*   `add_user(User("Alice", "alice@example.com", "active"))` ➡️ `INSERT INTO users ( name,email,status ) VALUES (%s,%s,%s)`
 *   `set_user_columns_status_by_id` ➡️ `UPDATE users SET status = %s WHERE id = %s`
+*   `set_user_columns_status_by_id(User(...), 1)` ➡️ `UPDATE users SET status = %s WHERE id = %s`
 *   `delete_user_by_id` ➡️ `DELETE FROM users WHERE id = %s`
 *   `delete_user(id=123)` ➡️ `DELETE FROM users WHERE id = %s`
 *   `call_refresh_cache("users", 10)` ➡️ `refresh_cache(%s,%s)`

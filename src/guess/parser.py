@@ -61,6 +61,15 @@ def get_value(obj: Any, field_name: str) -> Any:
     return getattr(obj, field_name)
 
 
+def get_model_type_from_value(obj: Any) -> type | None:
+    if isinstance(obj, dict):
+        return dict
+    cls = type(obj)
+    if is_dataclass(cls) or hasattr(cls, "model_fields") or hasattr(cls, "__fields__"):
+        return cls
+    return None
+
+
 def split_model_kwargs(raw_query: RawQuery) -> tuple[Any | None, type | None, dict[str, Any]]:
     kwargs = dict(raw_query.kwargs or {})
     name = inflection.singularize(raw_query.target)
@@ -227,6 +236,25 @@ def prepare_arguments(raw_query: RawQuery) -> tuple[Any, ...]:
         names = tuple(raw_query.fields) if raw_query.fields else tuple(raw_query.kwargs.keys())
         return prepare_kwargs(raw_query, names)
 
+    if (
+        raw_query.clause in (Clause.INSERT, Clause.UPDATE)
+        and not raw_query.result_type
+        and raw_query.args
+        and (raw_query.clause == Clause.UPDATE or len(raw_query.args) == 1)
+    ):
+        if result_type := get_model_type_from_value(raw_query.args[0]):
+            return prepare_arguments(RawQuery(
+                raw_query.clause,
+                raw_query.target,
+                raw_query.fields,
+                raw_query.conditions,
+                raw_query.is_list_result,
+                raw_query.is_async_func,
+                raw_query.args,
+                raw_query.kwargs,
+                result_type,
+            ))
+
     if raw_query.result_type:
         obj = raw_query.args[0]
         if raw_query.fields:
@@ -268,11 +296,15 @@ def create_update_query(raw_query: RawQuery) -> DigestedQuery:
 def create_insert_query(raw_query: RawQuery) -> DigestedQuery:
     insert_fields = raw_query.fields
     model_obj, model_type, remaining_kwargs = split_model_kwargs(raw_query)
-    if not insert_fields and raw_query.result_type:
-        if raw_query.result_type == dict:
+    result_type = raw_query.result_type
+    if not result_type and len(raw_query.args or ()) == 1:
+        result_type = get_model_type_from_value(raw_query.args[0])
+
+    if not insert_fields and result_type:
+        if result_type == dict:
             insert_fields = list((model_obj or raw_query.args[0]).keys())
         else:
-            insert_fields = get_field_names(raw_query.result_type)
+            insert_fields = get_field_names(result_type)
     if not insert_fields and model_obj is not None:
         if model_type == dict:
             insert_fields = list(model_obj.keys())
