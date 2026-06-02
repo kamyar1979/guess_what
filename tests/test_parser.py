@@ -77,6 +77,51 @@ def test_parse_func_name_select():
     assert q.conditions == ["status", "role"]
 
 
+def test_parse_func_name_semantic_aliases():
+    q = parse_function_to_query("fetch_user_by_id")
+    assert q is not None
+    assert q.clause == Clause.SELECT
+    assert q.target == "users"
+    assert q.conditions == ["id"]
+
+    q = parse_function_to_query("change_user_columns_status_by_id")
+    assert q is not None
+    assert q.clause == Clause.UPDATE
+    assert q.target == "users"
+    assert q.fields == ["status"]
+    assert q.conditions == ["id"]
+
+    q = parse_function_to_query("modify_user_columns_status_by_id")
+    assert q is not None
+    assert q.clause == Clause.UPDATE
+    assert q.target == "users"
+    assert q.fields == ["status"]
+    assert q.conditions == ["id"]
+
+    q = parse_function_to_query("create_user_columns_name_and_email")
+    assert q is not None
+    assert q.clause == Clause.INSERT
+    assert q.target == "users"
+    assert q.fields == ["name", "email"]
+
+    q = parse_function_to_query("omit_user_by_id")
+    assert q is not None
+    assert q.clause == Clause.DELETE
+    assert q.target == "users"
+    assert q.conditions == ["id"]
+
+    q = parse_function_to_query("drop_user_by_id")
+    assert q is not None
+    assert q.clause == Clause.DELETE
+    assert q.target == "users"
+    assert q.conditions == ["id"]
+
+    q = parse_function_to_query("invoke_refresh_cache")
+    assert q is not None
+    assert q.clause == Clause.CALL
+    assert q.target == "refresh_cache"
+
+
 def test_parse_func_name_update():
     # Simple update with columns and conditions
     q = parse_function_to_query("set_user_columns_status_by_id")
@@ -188,6 +233,12 @@ def test_create_query_select():
         False,
         False,
     )
+    assert create_query("fetch_user_by_id") == DigestedQuery(
+        "SELECT * FROM users WHERE id = %s",
+        (),
+        False,
+        False,
+    )
 
 
 def test_create_query_select_rejects_mixed_positional_and_keyword_args():
@@ -237,6 +288,18 @@ def test_create_query_update():
         False,
         False,
     )
+    assert create_query("change_user_columns_status_by_id") == DigestedQuery(
+        "UPDATE users SET status = %s WHERE id = %s",
+        (),
+        False,
+        False,
+    )
+    assert create_query("modify_user_columns_status_by_id") == DigestedQuery(
+        "UPDATE users SET status = %s WHERE id = %s",
+        (),
+        False,
+        False,
+    )
 
 
 def test_create_query_insert():
@@ -264,11 +327,19 @@ def test_create_query_insert():
         False,
         False,
     )
+    assert create_query("create_user_columns_name_and_email") == DigestedQuery(
+        "INSERT INTO users ( name,email ) VALUES (%s,%s)",
+        (),
+        False,
+        False,
+    )
 
 
 def test_create_query_delete():
     assert create_query("delete_user_by_id") == DigestedQuery("DELETE FROM users WHERE id = %s", (), False, False)
     assert create_query("remove_users") == DigestedQuery("DELETE FROM users", (), True, False)
+    assert create_query("omit_user_by_id") == DigestedQuery("DELETE FROM users WHERE id = %s", (), False, False)
+    assert create_query("drop_user_by_id") == DigestedQuery("DELETE FROM users WHERE id = %s", (), False, False)
     assert create_query("delete_user_by_status_and_role", None, role="member", status="inactive") == DigestedQuery(
         "DELETE FROM users WHERE status = %s AND role = %s",
         ("inactive", "member"),
@@ -302,6 +373,12 @@ def test_create_query_call():
     )
     assert create_query("call_refresh_cache", None, table="users", limit=10) == DigestedQuery(
         "refresh_cache(table => %s,limit => %s)",
+        ("users", 10),
+        False,
+        False,
+    )
+    assert create_query("invoke_refresh_cache", None, "users", 10) == DigestedQuery(
+        "refresh_cache(%s,%s)",
         ("users", 10),
         False,
         False,

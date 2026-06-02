@@ -233,11 +233,11 @@ For database calls, use:
 `call_[function_or_procedure]`
 
 *   **`[clause]`**: Supported clauses are:
-    *   **SELECT**: `get`, `select`
-    *   **UPDATE**: `set`, `edit`, `update`
-    *   **INSERT**: `add`, `insert`
-    *   **DELETE**: `delete`, `remove`
-    *   **CALL**: `call`
+    *   **SELECT**: `get`, `fetch`, `select`
+    *   **UPDATE**: `set`, `edit`, `change`, `modify`, `update`
+    *   **INSERT**: `add`, `create`, `insert`
+    *   **DELETE**: `delete`, `remove`, `omit`, `drop`
+    *   **CALL**: `call`, `invoke`
 *   **`[table]`**: Singular form of the database table (automatically pluralized at runtime using inflection). E.g., `user` -> `users`. `call_...` targets are not pluralized.
 *   **`[fields]`** *(optional)*: Underscore-separated column list joined with `_and_`. E.g., `name_and_email` -> `name, email`.
 *   **`[conditions]`** *(optional)*: Underscore-separated filter columns joined with `_and_`. E.g., `status_and_role` -> `WHERE status = %s AND role = %s`.
@@ -277,17 +277,24 @@ db.call_refresh_cache(table="users", limit=10)  # refresh_cache(table => %s,limi
 
 ### Examples:
 *   `get_users` ➡️ `SELECT * FROM users`
+*   `fetch_users` ➡️ `SELECT * FROM users`
 *   `get_user_by_id` ➡️ `SELECT * FROM users WHERE id = %s`
 *   `get_user(id=123)` ➡️ `SELECT * FROM users WHERE id = %s`
 *   `get_user(123)` ➡️ `SELECT * FROM users WHERE id = %s`
 *   `get_user_columns_name_and_email_by_id` ➡️ `SELECT name,email FROM users WHERE id = %s`
 *   `add_user("Alice", "alice@example.com", "active")` ➡️ `INSERT INTO users VALUES (%s,%s,%s)`
+*   `create_user("Alice", "alice@example.com", "active")` ➡️ `INSERT INTO users VALUES (%s,%s,%s)`
 *   `add_user(User("Alice", "alice@example.com", "active"))` ➡️ `INSERT INTO users ( name,email,status ) VALUES (%s,%s,%s)`
 *   `set_user_columns_status_by_id` ➡️ `UPDATE users SET status = %s WHERE id = %s`
+*   `change_user_columns_status_by_id` ➡️ `UPDATE users SET status = %s WHERE id = %s`
+*   `modify_user_columns_status_by_id` ➡️ `UPDATE users SET status = %s WHERE id = %s`
 *   `set_user_columns_status_by_id(User(...), 1)` ➡️ `UPDATE users SET status = %s WHERE id = %s`
 *   `delete_user_by_id` ➡️ `DELETE FROM users WHERE id = %s`
+*   `omit_user_by_id` ➡️ `DELETE FROM users WHERE id = %s`
+*   `drop_user_by_id` ➡️ `DELETE FROM users WHERE id = %s`
 *   `delete_user(id=123)` ➡️ `DELETE FROM users WHERE id = %s`
 *   `call_refresh_cache("users", 10)` ➡️ `refresh_cache(%s,%s)`
+*   `invoke_refresh_cache("users", 10)` ➡️ `refresh_cache(%s,%s)`
 *   `call_refresh_cache(table="users", limit=10)` ➡️ `refresh_cache(table => %s,limit => %s)`
 
 ---
@@ -298,4 +305,11 @@ To run the comprehensive test suite:
 
 ```bash
 PYTHONPATH=src uv run pytest
+```
+
+PostgreSQL integration tests are optional. They run only when a DSN is provided, and the PostgreSQL driver can be supplied just for the test command:
+
+```bash
+GUESS_WHAT_POSTGRES_DSN="postgresql://user:password@localhost:5432/dbname" \
+PYTHONPATH=src uv run --with psycopg2-binary pytest tests/test_integration_postgres.py
 ```

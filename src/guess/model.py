@@ -33,13 +33,20 @@ class DigestedQuery:
 
 clause_mapping = {
     "get": Clause.SELECT,
+    "fetch": Clause.SELECT,
     "set": Clause.UPDATE,
     "edit": Clause.UPDATE,
+    "change": Clause.UPDATE,
+    "modify": Clause.UPDATE,
     "add": Clause.INSERT,
+    "create": Clause.INSERT,
     "select": Clause.SELECT,
     "update": Clause.UPDATE,
     "insert": Clause.INSERT,
     "delete": Clause.DELETE,
     "remove": Clause.DELETE,
+    "omit": Clause.DELETE,
+    "drop": Clause.DELETE,
     "call": Clause.CALL,
+    "invoke": Clause.CALL,
 }
