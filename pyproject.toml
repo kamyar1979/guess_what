@@ -1,17 +1,11 @@
 [project]
 name = "guess-what"
-<<<<<<< Updated upstream
-version = "1.4.0"
-=======
 version = "1.6.0"
->>>>>>> Stashed changes
 description = "A dynamic SQL interceptor and micro-ORM for Python based on semantic method names."
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
     "inflection>=0.4.0",
-    "psycopg2-binary>=2.9.12",
-    "aiopg>=1.4.0"
 ]
 
 [project.urls]

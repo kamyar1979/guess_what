@@ -1,4 +1,7 @@
 from dataclasses import dataclass
+from decimal import Decimal
+from enum import StrEnum
+from uuid import UUID
 
 import pytest
 from guess.model import Clause, DigestedQuery, RawQuery
@@ -25,6 +28,10 @@ class PydanticLikeUser:
         self.name = name
         self.email = email
         self.status = status
+
+
+class Status(StrEnum):
+    ACTIVE = "active"
 
 
 def test_conditions_are_returned_as_ordered_tuple():
@@ -558,3 +565,22 @@ def test_create_query_update_requires_columns():
 def test_create_query_insert_requires_columns():
     with pytest.raises(ValueError, match="INSERT queries require columns or values"):
         create_query("add_user")
+
+
+def test_create_query_preserves_driver_specific_scalar_values():
+    price = Decimal("19.99")
+    user_id = UUID("12345678-1234-5678-1234-567812345678")
+    status = Status.ACTIVE
+
+    assert create_query(
+        "add_product_columns_price_and_owner_id_and_status",
+        None,
+        price,
+        user_id,
+        status,
+    ) == DigestedQuery(
+        "INSERT INTO products ( price,owner_id,status ) VALUES (%s,%s,%s)",
+        (price, user_id, status),
+        False,
+        False,
+    )

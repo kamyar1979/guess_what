@@ -1,5 +1,8 @@
 import sqlite3
 from dataclasses import dataclass
+from datetime import date, datetime, time
+
+import pytest
 
 from guess import Database
 
@@ -20,6 +23,16 @@ class UserContact:
 class ExternalUser:
     user_id: int
     name: str
+
+
+@dataclass
+class Event:
+    name: str
+    starts_at: datetime
+    event_date: date
+    is_public: bool
+    notes: str | None
+    payload: bytes
 
 
 def test_sqlite_database_dynamic_methods_end_to_end():
@@ -238,6 +251,76 @@ def test_sqlite_database_insert_with_kwargs():
         ("Alice", "pending"),
         ("Bob", "active"),
     ]
+
+
+def test_sqlite_database_handles_common_scalar_values():
+    conn = sqlite3.connect(":memory:")
+    conn.execute(
+        """
+        CREATE TABLE events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            starts_at TIMESTAMP NOT NULL,
+            event_date DATE NOT NULL,
+            is_public BOOLEAN NOT NULL,
+            notes TEXT,
+            payload BLOB NOT NULL
+        )
+        """
+    )
+
+    db = Database(conn)
+    event = Event(
+        name="Launch",
+        starts_at=datetime(2026, 6, 2, 14, 30, 45),
+        event_date=date(2026, 6, 2),
+        is_public=True,
+        notes=None,
+        payload=b"hello",
+    )
+
+    db.add_event(event)
+    db.add_event({
+        "name": "Private",
+        "starts_at": datetime(2026, 6, 3, 9, 15),
+        "event_date": date(2026, 6, 3),
+        "is_public": False,
+        "notes": "invite only",
+        "payload": b"secret",
+    })
+
+    assert db.get_event_by_name[dict]("Launch") == {
+        "id": 1,
+        "name": "Launch",
+        "starts_at": "2026-06-02 14:30:45",
+        "event_date": "2026-06-02",
+        "is_public": 1,
+        "notes": None,
+        "payload": b"hello",
+    }
+    assert db.get_event_by_name[dict]("Private") == {
+        "id": 2,
+        "name": "Private",
+        "starts_at": "2026-06-03 09:15:00",
+        "event_date": "2026-06-03",
+        "is_public": 0,
+        "notes": "invite only",
+        "payload": b"secret",
+    }
+
+    db.set_event_columns_notes_by_name({"notes": "published"}, "Launch")
+
+    assert db.get_event_columns_notes_by_name("Launch") == ("published",)
+
+
+def test_sqlite_database_time_values_need_driver_adapter():
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE events (event_time TIME NOT NULL)")
+
+    db = Database(conn)
+
+    with pytest.raises(sqlite3.ProgrammingError, match="type 'datetime.time' is not supported"):
+        db.add_event_columns_event_time(time(14, 30, 45))
 
 
 def test_sqlite_database_select_infers_conditions_from_kwargs_without_by():
