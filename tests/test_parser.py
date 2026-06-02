@@ -76,6 +76,14 @@ def test_parse_func_name_select():
     assert q.fields == ["name"]
     assert q.conditions == ["status", "role"]
 
+    # Explicit by-clause with conditions inferred from kwargs at call time
+    q = parse_function_to_query("get_users_by")
+    assert q is not None
+    assert q.clause == Clause.SELECT
+    assert q.target == "users"
+    assert q.fields is None
+    assert q.conditions == []
+
 
 def test_parse_func_name_semantic_aliases():
     q = parse_function_to_query("fetch_user_by_id")
@@ -166,6 +174,14 @@ def test_parse_func_name_delete():
     assert q.target == "posts"
     assert q.fields is None
     assert q.conditions == ["author_id", "category"]
+
+    # Explicit by-clause with conditions inferred from kwargs at call time
+    q = parse_function_to_query("delete_users_by")
+    assert q is not None
+    assert q.clause == Clause.DELETE
+    assert q.target == "users"
+    assert q.fields is None
+    assert q.conditions == []
 
 
 def test_parse_func_name_call():
@@ -265,6 +281,35 @@ def test_create_query_select_infers_conditions_from_kwargs_without_by():
     )
 
 
+def test_create_query_select_infers_conditions_from_kwargs_with_empty_by():
+    assert create_query("get_users_by", None, email="alice@example.com", name="Alice") == DigestedQuery(
+        "SELECT * FROM users WHERE email = %s AND name = %s",
+        ("alice@example.com", "Alice"),
+        True,
+        False,
+    )
+    assert create_query("get_user_by", None, id=123) == DigestedQuery(
+        "SELECT * FROM users WHERE id = %s",
+        (123,),
+        False,
+        False,
+    )
+    assert create_query("get_user_by_name_and_email", None, email="alice@example.com", name="Alice") == DigestedQuery(
+        "SELECT * FROM users WHERE name = %s AND email = %s",
+        ("Alice", "alice@example.com"),
+        False,
+        False,
+    )
+
+
+def test_create_query_select_rejects_empty_by_without_kwargs():
+    with pytest.raises(ValueError, match="Empty by clause requires keyword arguments"):
+        create_query("get_users_by")
+
+    with pytest.raises(ValueError, match="Empty by clause requires keyword arguments"):
+        create_query("get_user_by", None, 123)
+
+
 def test_create_query_select_rejects_ambiguous_duplicate_names_with_kwargs():
     with pytest.raises(ValueError, match="Keyword arguments are ambiguous for duplicate names: name"):
         create_query("get_user_columns_name_by_name", None, name="test")
@@ -352,6 +397,12 @@ def test_create_query_delete():
         False,
         False,
     )
+    assert create_query("delete_users_by", None, status="inactive", role="member") == DigestedQuery(
+        "DELETE FROM users WHERE status = %s AND role = %s",
+        ("inactive", "member"),
+        True,
+        False,
+    )
 
 
 def test_create_query_delete_rejects_missing_keyword_args():
@@ -362,6 +413,11 @@ def test_create_query_delete_rejects_missing_keyword_args():
 def test_create_query_delete_rejects_unknown_keyword_args():
     with pytest.raises(ValueError, match="Unknown keyword arguments: name"):
         create_query("delete_user_by_status", None, status="inactive", name="Alice")
+
+
+def test_create_query_delete_rejects_empty_by_without_kwargs():
+    with pytest.raises(ValueError, match="Empty by clause requires keyword arguments"):
+        create_query("delete_users_by")
 
 
 def test_create_query_call():

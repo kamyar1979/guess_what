@@ -74,6 +74,9 @@ def test_sqlite_database_dynamic_methods_end_to_end():
         "Alice",
         "pending",
     )
+    assert db.get_users_by(status="active", email="bob@example.com") == [
+        (2, "Bob", "bob@example.com", "active"),
+    ]
 
     db.set_user_columns_status_by_email("active", "alice@example.com")
     db.set_user_columns_status_by_email(email="bob@example.com", status="pending")
@@ -83,7 +86,7 @@ def test_sqlite_database_dynamic_methods_end_to_end():
     ]
     assert db.get_user_columns_name_by_status(status="pending") == ("Bob",)
 
-    db.delete_user(email="bob@example.com")
+    db.delete_user_by(email="bob@example.com")
 
     assert db.get_users_columns_name_and_status() == [("Alice", "active")]
     assert db.get_user_by_email("bob@example.com") is None

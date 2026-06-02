@@ -261,6 +261,13 @@ db.delete_user(id=123)
 db.delete_user(status="inactive", role="member")
 ```
 
+You can also keep the explicit `_by` marker and let kwargs provide the condition names:
+
+```python
+db.get_users_by(name="Alice", email="alice@example.com")
+db.delete_users_by(status="inactive", role="member")
+```
+
 For single-row SELECTs, one positional argument can also imply the primary key condition. Without a typed model, `guess-what` uses `id`. With a typed dataclass or Pydantic model, it looks for `id` or an entity-specific key such as `user_id`; if neither exists, it raises an error instead of guessing the wrong column:
 
 ```python
@@ -280,6 +287,7 @@ db.call_refresh_cache(table="users", limit=10)  # refresh_cache(table => %s,limi
 *   `fetch_users` ➡️ `SELECT * FROM users`
 *   `get_user_by_id` ➡️ `SELECT * FROM users WHERE id = %s`
 *   `get_user(id=123)` ➡️ `SELECT * FROM users WHERE id = %s`
+*   `get_users_by(name="Alice", email="alice@example.com")` ➡️ `SELECT * FROM users WHERE name = %s AND email = %s`
 *   `get_user(123)` ➡️ `SELECT * FROM users WHERE id = %s`
 *   `get_user_columns_name_and_email_by_id` ➡️ `SELECT name,email FROM users WHERE id = %s`
 *   `add_user("Alice", "alice@example.com", "active")` ➡️ `INSERT INTO users VALUES (%s,%s,%s)`
@@ -293,6 +301,7 @@ db.call_refresh_cache(table="users", limit=10)  # refresh_cache(table => %s,limi
 *   `omit_user_by_id` ➡️ `DELETE FROM users WHERE id = %s`
 *   `drop_user_by_id` ➡️ `DELETE FROM users WHERE id = %s`
 *   `delete_user(id=123)` ➡️ `DELETE FROM users WHERE id = %s`
+*   `delete_users_by(status="inactive")` ➡️ `DELETE FROM users WHERE status = %s`
 *   `call_refresh_cache("users", 10)` ➡️ `refresh_cache(%s,%s)`
 *   `invoke_refresh_cache("users", 10)` ➡️ `refresh_cache(%s,%s)`
 *   `call_refresh_cache(table="users", limit=10)` ➡️ `refresh_cache(table => %s,limit => %s)`
