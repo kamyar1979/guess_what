@@ -76,6 +76,57 @@ def test_sqlite_database_dynamic_methods_end_to_end():
     assert db.get_user_by_email("bob@example.com") is None
 
 
+def test_sqlite_database_semantic_verb_aliases_end_to_end():
+    conn = sqlite3.connect(":memory:")
+    conn.execute(
+        """
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            status TEXT NOT NULL
+        )
+        """
+    )
+
+    db = Database(conn)
+
+    db.create_user_columns_name_and_email_and_status(
+        "Alice",
+        "alice@example.com",
+        "pending",
+    )
+
+    assert db.fetch_user_by_email("alice@example.com") == (
+        1,
+        "Alice",
+        "alice@example.com",
+        "pending",
+    )
+
+    db.change_user_columns_status_by_email("active", "alice@example.com")
+
+    assert db.fetch_user_columns_status_by_email("alice@example.com") == ("active",)
+
+    db.modify_user_columns_status_by_email("inactive", "alice@example.com")
+
+    assert db.fetch_user_columns_status_by_email("alice@example.com") == ("inactive",)
+
+    db.omit_user_by_email("alice@example.com")
+
+    assert db.fetch_user_by_email("alice@example.com") is None
+
+    db.create_user_columns_name_and_email_and_status(
+        "Bob",
+        "bob@example.com",
+        "pending",
+    )
+
+    db.drop_user_by_email("bob@example.com")
+
+    assert db.fetch_user_by_email("bob@example.com") is None
+
+
 def test_sqlite_database_dataclass_insert_select_and_update():
     conn = sqlite3.connect(":memory:")
     conn.execute(
