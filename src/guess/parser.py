@@ -26,7 +26,7 @@ _
 (?P<target>\w+?)
 
 (?:_columns_(?P<fields>(?:(?!_by_)\w)+))?
-(?:_by_(?P<conditions>\w+?))?
+(?P<by>_by(?:_(?P<conditions>\w+?))?)?
 $
 """
 
@@ -137,10 +137,12 @@ def get_primary_key_condition(raw_query: RawQuery) -> tuple[str, ...]:
 
 
 def get_conditions(raw_query: RawQuery) -> tuple[str, ...]:
-    if raw_query.conditions:
+    if raw_query.conditions is not None and len(raw_query.conditions) > 0:
         return tuple(raw_query.conditions)
     if raw_query.clause in (Clause.SELECT, Clause.DELETE) and raw_query.kwargs:
         return tuple(raw_query.kwargs.keys())
+    if raw_query.clause in (Clause.SELECT, Clause.DELETE) and raw_query.conditions == []:
+        raise ValueError("Empty by clause requires keyword arguments")
     return get_primary_key_condition(raw_query)
 
 
@@ -151,7 +153,7 @@ def parse_function_to_query(func_name: str, result_type: Optional[type] = None, 
         return RawQuery(clause,
                         target,
                         m.group("fields").split('_and_') if m.group("fields") else None,
-                        m.group("conditions").split('_and_') if m.group("conditions") else None,
+                        m.group("conditions").split('_and_') if m.group("conditions") else ([] if m.group("by") else None),
                         clause != Clause.CALL and inflection.pluralize(m.group("target")) == m.group("target"),
                         m.group("async") == "async_",
                         args,
