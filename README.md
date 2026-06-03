@@ -242,6 +242,7 @@ Use `_when` for operator conditions:
 
 ```python
 db.get_users_when(age_less_than=30, name_like="Ali%")
+db.get_users_when(id_in=[1, 2, 3])
 db.set_user_columns_status_when(status="archived", last_seen_less_than=cutoff)
 db.delete_logs_when(created_at_less_than=cutoff)
 ```

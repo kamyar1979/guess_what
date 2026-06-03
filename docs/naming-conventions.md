@@ -90,6 +90,7 @@ Use `_when` when conditions need operators other than equality. The operator is 
 
 ```python
 db.get_users_when(age_less_than=30, name_like="Ali%")
+db.get_users_when(id_in=[1, 2, 3])
 db.set_user_columns_status_when(status="archived", last_seen_less_than=cutoff)
 db.delete_logs_when(created_at_less_than=cutoff)
 ```
@@ -106,6 +107,7 @@ Supported suffixes:
 | `less_than_or_equal` | `<=` |
 | `like` | `LIKE` |
 | `not_like` | `NOT LIKE` |
+| `in` | `IN (...)` |
 
 Examples:
 
@@ -116,8 +118,18 @@ db.get_users_when(status="active")
 db.get_users_when(age_greater_than_or_equal=18, name_like="A%")
 # SELECT * FROM users WHERE age >= %s AND name LIKE %s
 
+db.get_users_when(id_in=[1, 2, 3])
+# SELECT * FROM users WHERE id IN (%s,%s,%s)
+
 db.delete_users_when(status_not_equal="active")
 # DELETE FROM users WHERE status <> %s
+```
+
+The `in` operator requires a non-empty list or tuple. Its values are still passed as bound parameters:
+
+```python
+db.get_users_when(id_in=[1, 2, 3])
+# args: (1, 2, 3)
 ```
 
 `_when` is marker-only. This form is not supported:

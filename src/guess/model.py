@@ -20,6 +20,7 @@ class Operator(StrEnum):
     LESS_THAN_OR_EQUAL = "less_than_or_equal"
     LIKE = "like"
     NOT_LIKE = "not_like"
+    IN = "in"
 
 
 @dataclass

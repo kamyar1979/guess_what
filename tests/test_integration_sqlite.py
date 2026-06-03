@@ -80,6 +80,10 @@ def test_sqlite_database_dynamic_methods_end_to_end():
     assert db.get_users_when(status_not_equal="pending") == [
         (2, "Bob", "bob@example.com", "active"),
     ]
+    assert db.get_users_when(id_in=[1, 2]) == [
+        (1, "Alice", "alice@example.com", "pending"),
+        (2, "Bob", "bob@example.com", "active"),
+    ]
 
     db.set_user_columns_status_when(status="review", email_like="bob@%")
 

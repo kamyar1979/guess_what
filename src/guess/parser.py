@@ -23,6 +23,7 @@ operator_mapping = {
     Operator.LESS_THAN_OR_EQUAL: "<=",
     Operator.LIKE: "LIKE",
     Operator.NOT_LIKE: "NOT LIKE",
+    Operator.IN: "IN",
 }
 
 
@@ -141,14 +142,43 @@ def parse_named_argument_to_condition(name: str) -> tuple[str, Operator]:
     return name, Operator.EQUAL
 
 
+def get_in_values(name: str, value: Any) -> tuple[Any, ...]:
+    if not isinstance(value, (list, tuple)):
+        raise ValueError(f"IN operator requires a non-empty list or tuple: {name}")
+    if not value:
+        raise ValueError(f"IN operator requires a non-empty list or tuple: {name}")
+    return tuple(value)
+
+
+def create_named_argument_condition(name: str, value: Any) -> str:
+    field_name, operator = parse_named_argument_to_condition(name)
+    if operator == Operator.IN:
+        placeholders = ",".join("%s" for _ in get_in_values(name, value))
+        return f"{field_name} IN ({placeholders})"
+    return f"{field_name} {operator_mapping[operator]} %s"
+
+
+def prepare_named_argument_values(name: str, value: Any) -> tuple[Any, ...]:
+    _, operator = parse_named_argument_to_condition(name)
+    if operator == Operator.IN:
+        return get_in_values(name, value)
+    return (value,)
+
+
+def prepare_named_arguments_values(named_arguments: dict[str, Any]) -> tuple[Any, ...]:
+    values = []
+    for name, value in named_arguments.items():
+        values.extend(prepare_named_argument_values(name, value))
+    return tuple(values)
+
+
 def parse_named_arguments_to_where_clause(named_arguments: dict[str, Any]) -> str:
     if not named_arguments:
         return ""
 
     conditions = []
-    for name in named_arguments:
-        field_name, operator = parse_named_argument_to_condition(name)
-        conditions.append(f"{field_name} {operator_mapping[operator]} %s")
+    for name, value in named_arguments.items():
+        conditions.append(create_named_argument_condition(name, value))
     return f" WHERE {' AND '.join(conditions)}"
 
 
@@ -159,7 +189,7 @@ def prepare_named_condition_arguments(raw_query: RawQuery) -> tuple[Any, ...]:
         raise ValueError("When clauses require named arguments")
     if not raw_query.kwargs:
         raise ValueError("Empty when clause requires named arguments")
-    return tuple(raw_query.kwargs.values())
+    return prepare_named_arguments_values(raw_query.kwargs)
 
 
 def get_update_named_condition_arguments(raw_query: RawQuery) -> dict[str, Any]:
@@ -227,7 +257,7 @@ def prepare_update_when_arguments(raw_query: RawQuery) -> tuple[Any, ...]:
             raise ValueError(f"Missing keyword arguments: {','.join(missing)}")
         field_args = tuple(remaining_kwargs[name] for name in field_names)
 
-    return field_args + tuple(condition_arguments.values())
+    return field_args + prepare_named_arguments_values(condition_arguments)
 
 
 def create_condition_clause(raw_query: RawQuery) -> str:
@@ -322,6 +352,14 @@ def parse_function_to_query(func_name: str, result_type: Optional[type] = None, 
     return None
 
 
+def get_named_argument_cache_shape(name: str, value: Any) -> tuple[str, int | None]:
+    if parse_named_argument_to_condition(name)[1] != Operator.IN:
+        return name, None
+    if not isinstance(value, (list, tuple)):
+        return name, None
+    return name, len(value)
+
+
 def create_select_query_cache_key(raw_query: RawQuery) -> tuple[Any, ...]:
     return (
         raw_query.clause,
@@ -332,7 +370,7 @@ def create_select_query_cache_key(raw_query: RawQuery) -> tuple[Any, ...]:
         raw_query.is_async_func,
         raw_query.is_when_condition,
         raw_query.result_type,
-        tuple((raw_query.kwargs or {}).keys()),
+        tuple(get_named_argument_cache_shape(name, value) for name, value in (raw_query.kwargs or {}).items()),
         len(raw_query.args or ()),
     )
 
@@ -345,7 +383,7 @@ def create_delete_query_cache_key(raw_query: RawQuery) -> tuple[Any, ...]:
         raw_query.is_list_result,
         raw_query.is_async_func,
         raw_query.is_when_condition,
-        tuple((raw_query.kwargs or {}).keys()),
+        tuple(get_named_argument_cache_shape(name, value) for name, value in (raw_query.kwargs or {}).items()),
         len(raw_query.args or ()),
     )
 

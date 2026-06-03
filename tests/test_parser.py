@@ -95,6 +95,19 @@ def test_select_query_shape_is_cached_without_argument_values():
     assert len(select_query_cache) == 2
 
 
+def test_select_query_shape_cache_tracks_in_operator_value_count():
+    create_select_query_shape.cache_clear()
+
+    first = create_query("get_users_when", None, id_in=[1, 2])
+    second = create_query("get_users_when", None, id_in=[3, 4])
+    third = create_query("get_users_when", None, id_in=[1, 2, 3])
+
+    assert first == DigestedQuery("SELECT * FROM users WHERE id IN (%s,%s)", (1, 2), True, False)
+    assert second == DigestedQuery("SELECT * FROM users WHERE id IN (%s,%s)", (3, 4), True, False)
+    assert third == DigestedQuery("SELECT * FROM users WHERE id IN (%s,%s,%s)", (1, 2, 3), True, False)
+    assert len(select_query_cache) == 2
+
+
 def test_select_argument_names_are_cached_without_argument_values():
     select_argument_names_cache.clear()
 
@@ -116,6 +129,19 @@ def test_delete_query_shape_is_cached_without_argument_values():
     assert first == DigestedQuery("DELETE FROM users WHERE age < %s", (30,), True, False)
     assert second == DigestedQuery("DELETE FROM users WHERE age < %s", (40,), True, False)
     assert third == DigestedQuery("DELETE FROM users WHERE age > %s", (40,), True, False)
+    assert len(delete_query_cache) == 2
+
+
+def test_delete_query_shape_cache_tracks_in_operator_value_count():
+    create_delete_query_shape.cache_clear()
+
+    first = create_query("delete_users_when", None, id_in=(1, 2))
+    second = create_query("delete_users_when", None, id_in=(3, 4))
+    third = create_query("delete_users_when", None, id_in=(1, 2, 3))
+
+    assert first == DigestedQuery("DELETE FROM users WHERE id IN (%s,%s)", (1, 2), True, False)
+    assert second == DigestedQuery("DELETE FROM users WHERE id IN (%s,%s)", (3, 4), True, False)
+    assert third == DigestedQuery("DELETE FROM users WHERE id IN (%s,%s,%s)", (1, 2, 3), True, False)
     assert len(delete_query_cache) == 2
 
 
@@ -188,8 +214,9 @@ def test_parse_named_arguments_to_where_clause():
         "created_at_greater_than_or_equal": "2026-01-01",
         "name_like": "Ali%",
         "status_not_equal": "deleted",
+        "id_in": [1, 2, 3],
     }) == (
-        " WHERE age < %s AND created_at >= %s AND name LIKE %s AND status <> %s"
+        " WHERE age < %s AND created_at >= %s AND name LIKE %s AND status <> %s AND id IN (%s,%s,%s)"
     )
 
 
@@ -430,6 +457,12 @@ def test_create_query_select_uses_when_operator_conditions():
         False,
         False,
     )
+    assert create_query("get_users_when", None, id_in=[1, 2, 3], status="active") == DigestedQuery(
+        "SELECT * FROM users WHERE id IN (%s,%s,%s) AND status = %s",
+        (1, 2, 3, "active"),
+        True,
+        False,
+    )
 
 
 def test_create_query_select_rejects_empty_by_without_kwargs():
@@ -446,6 +479,14 @@ def test_create_query_select_rejects_when_without_named_arguments():
 
     with pytest.raises(ValueError, match="When clauses require named arguments"):
         create_query("get_user_when", None, 123)
+
+
+def test_create_query_select_rejects_invalid_in_operator_values():
+    with pytest.raises(ValueError, match="IN operator requires a non-empty list or tuple: id_in"):
+        create_query("get_users_when", None, id_in=1)
+
+    with pytest.raises(ValueError, match="IN operator requires a non-empty list or tuple: id_in"):
+        create_query("get_users_when", None, id_in=[])
 
 
 def test_create_query_select_rejects_ambiguous_duplicate_names_with_kwargs():
@@ -547,6 +588,12 @@ def test_create_query_delete():
         True,
         False,
     )
+    assert create_query("delete_users_when", None, id_in=(1, 2, 3), status_not_equal="active") == DigestedQuery(
+        "DELETE FROM users WHERE id IN (%s,%s,%s) AND status <> %s",
+        (1, 2, 3, "active"),
+        True,
+        False,
+    )
 
 
 def test_create_query_delete_rejects_missing_keyword_args():
@@ -570,6 +617,14 @@ def test_create_query_delete_rejects_when_without_named_arguments():
 
     with pytest.raises(ValueError, match="When clauses require named arguments"):
         create_query("delete_user_when", None, 123)
+
+
+def test_create_query_delete_rejects_invalid_in_operator_values():
+    with pytest.raises(ValueError, match="IN operator requires a non-empty list or tuple: id_in"):
+        create_query("delete_users_when", None, id_in=1)
+
+    with pytest.raises(ValueError, match="IN operator requires a non-empty list or tuple: id_in"):
+        create_query("delete_users_when", None, id_in=[])
 
 
 def test_create_query_call():
@@ -733,6 +788,12 @@ def test_create_query_update_uses_when_operator_conditions():
         False,
         False,
     )
+    assert create_query("set_user_columns_status_when", None, status="inactive", id_in=[1, 2]) == DigestedQuery(
+        "UPDATE users SET status = %s WHERE id IN (%s,%s)",
+        ("inactive", 1, 2),
+        False,
+        False,
+    )
 
 
 def test_create_query_update_uses_typed_value_and_kwargs_for_conditions():
@@ -813,6 +874,14 @@ def test_create_query_update_rejects_when_without_named_conditions():
 
     with pytest.raises(ValueError, match="When clauses require named field values or a typed values object"):
         create_query("set_user_columns_status_when", None, "inactive", age_less_than=30)
+
+
+def test_create_query_update_rejects_invalid_in_operator_values():
+    with pytest.raises(ValueError, match="IN operator requires a non-empty list or tuple: id_in"):
+        create_query("set_user_columns_status_when", None, status="inactive", id_in=1)
+
+    with pytest.raises(ValueError, match="IN operator requires a non-empty list or tuple: id_in"):
+        create_query("set_user_columns_status_when", None, status="inactive", id_in=[])
 
 
 def test_create_query_update_rejects_typed_kwargs_with_extra_positional_conditions():
