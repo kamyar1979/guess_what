@@ -30,15 +30,27 @@ class RawQuery:
     conditions: Optional[list[str]] = None
     is_list_result: bool = False
     is_async_func: bool = False
-    args: Optional[tuple[Any,...]] = None
+    args: Optional[tuple[Any, ...]] = None
     kwargs: Optional[dict[str, Any]] = None
     result_type: Optional[type] = None
     is_when_condition: bool = False
 
+
+@dataclass(frozen=True)
+class ParsedQuery:
+    clause: Clause
+    target: str
+    fields: Optional[tuple[str, ...]] = None
+    conditions: Optional[tuple[str, ...]] = None
+    is_list_result: bool = False
+    is_async_func: bool = False
+    is_when_condition: bool = False
+
+
 @dataclass
 class DigestedQuery:
     text: str
-    args: Optional[tuple[Any,...]] = None
+    args: Optional[tuple[Any, ...]] = None
     is_list: bool = False
     is_async: bool = False
 
