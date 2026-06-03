@@ -5,7 +5,14 @@ from uuid import UUID
 
 import pytest
 from guess.model import Clause, DigestedQuery, RawQuery
-from guess.parser import parse_function_to_query, create_query, get_conditions, prepare_kwargs
+from guess.parser import (
+    parse_function_to_query,
+    create_query,
+    get_conditions,
+    parse_named_arguments_to_where_clause,
+    prepare_kwargs,
+    regex,
+)
 
 
 @dataclass
@@ -83,6 +90,35 @@ def test_parse_func_name_select():
     assert q.target == "users"
     assert q.fields is None
     assert q.conditions == []
+
+    # Explicit when-clause for richer conditions in later parsing steps
+    m = regex.match("get_users_when")
+    assert m is not None
+    assert m.group("when") == "_when"
+    assert m.group("by") is None
+
+    q = parse_function_to_query("get_user_columns_name_when")
+    assert q is not None
+    assert q.clause == Clause.SELECT
+    assert q.target == "users"
+    assert q.fields == ["name"]
+    assert q.conditions == []
+    assert q.is_when_condition is True
+
+    assert parse_function_to_query("get_user_columns_name_when_age_less_than") is None
+
+
+def test_parse_named_arguments_to_where_clause():
+    assert parse_named_arguments_to_where_clause({}) == ""
+    assert parse_named_arguments_to_where_clause({"status": "active"}) == " WHERE status = %s"
+    assert parse_named_arguments_to_where_clause({
+        "age_less_than": 30,
+        "created_at_greater_than_or_equal": "2026-01-01",
+        "name_like": "Ali%",
+        "status_not_equal": "deleted",
+    }) == (
+        " WHERE age < %s AND created_at >= %s AND name LIKE %s AND status <> %s"
+    )
 
 
 def test_parse_func_name_semantic_aliases():
@@ -302,12 +338,42 @@ def test_create_query_select_infers_conditions_from_kwargs_with_empty_by():
     )
 
 
+def test_create_query_select_uses_when_operator_conditions():
+    assert create_query(
+        "get_users_when",
+        None,
+        age_less_than=30,
+        created_at_greater_than_or_equal="2026-01-01",
+        name_like="Ali%",
+        status="active",
+    ) == DigestedQuery(
+        "SELECT * FROM users WHERE age < %s AND created_at >= %s AND name LIKE %s AND status = %s",
+        (30, "2026-01-01", "Ali%", "active"),
+        True,
+        False,
+    )
+    assert create_query("get_user_columns_name_when", None, status_not_equal="deleted") == DigestedQuery(
+        "SELECT name FROM users WHERE status <> %s",
+        ("deleted",),
+        False,
+        False,
+    )
+
+
 def test_create_query_select_rejects_empty_by_without_kwargs():
     with pytest.raises(ValueError, match="Empty by clause requires keyword arguments"):
         create_query("get_users_by")
 
     with pytest.raises(ValueError, match="Empty by clause requires keyword arguments"):
         create_query("get_user_by", None, 123)
+
+
+def test_create_query_select_rejects_when_without_named_arguments():
+    with pytest.raises(ValueError, match="Empty when clause requires named arguments"):
+        create_query("get_users_when")
+
+    with pytest.raises(ValueError, match="When clauses require named arguments"):
+        create_query("get_user_when", None, 123)
 
 
 def test_create_query_select_rejects_ambiguous_duplicate_names_with_kwargs():
@@ -403,6 +469,12 @@ def test_create_query_delete():
         True,
         False,
     )
+    assert create_query("delete_users_when", None, created_at_less_than="2026-01-01") == DigestedQuery(
+        "DELETE FROM users WHERE created_at < %s",
+        ("2026-01-01",),
+        True,
+        False,
+    )
 
 
 def test_create_query_delete_rejects_missing_keyword_args():
@@ -418,6 +490,14 @@ def test_create_query_delete_rejects_unknown_keyword_args():
 def test_create_query_delete_rejects_empty_by_without_kwargs():
     with pytest.raises(ValueError, match="Empty by clause requires keyword arguments"):
         create_query("delete_users_by")
+
+
+def test_create_query_delete_rejects_when_without_named_arguments():
+    with pytest.raises(ValueError, match="Empty when clause requires named arguments"):
+        create_query("delete_users_when")
+
+    with pytest.raises(ValueError, match="When clauses require named arguments"):
+        create_query("delete_user_when", None, 123)
 
 
 def test_create_query_call():
@@ -562,6 +642,27 @@ def test_create_query_update_uses_kwargs_for_fields_and_conditions():
     )
 
 
+def test_create_query_update_uses_when_operator_conditions():
+    assert create_query("set_user_columns_status_when", None, status="inactive", age_less_than=30) == DigestedQuery(
+        "UPDATE users SET status = %s WHERE age < %s",
+        ("inactive", 30),
+        False,
+        False,
+    )
+    assert create_query(
+        "set_user_columns_status_when",
+        None,
+        status="inactive",
+        age_greater_than_or_equal=18,
+        name_like="Ali%",
+    ) == DigestedQuery(
+        "UPDATE users SET status = %s WHERE age >= %s AND name LIKE %s",
+        ("inactive", 18, "Ali%"),
+        False,
+        False,
+    )
+
+
 def test_create_query_update_uses_typed_value_and_kwargs_for_conditions():
     user = User("Alice", "alice@example.com", "inactive")
 
@@ -584,6 +685,23 @@ def test_create_query_update_uses_typed_keyword_value_and_kwargs_for_conditions(
     )
 
 
+def test_create_query_update_uses_typed_value_and_when_operator_conditions():
+    user = User("Alice", "alice@example.com", "inactive")
+
+    assert create_query("set_user_columns_status_when", User, user, name_like="Ali%") == DigestedQuery(
+        "UPDATE users SET status = %s WHERE name LIKE %s",
+        ("inactive", "Ali%"),
+        False,
+        False,
+    )
+    assert create_query("set_user_columns_status_when", User, user=user, name_not_like="Ali%") == DigestedQuery(
+        "UPDATE users SET status = %s WHERE name NOT LIKE %s",
+        ("inactive", "Ali%"),
+        False,
+        False,
+    )
+
+
 def test_create_query_update_uses_dict_values_for_selected_columns():
     user = {"name": "Alice", "email": "alice@example.com", "status": "inactive"}
 
@@ -601,9 +719,28 @@ def test_create_query_update_uses_dict_values_for_selected_columns():
     )
 
 
+def test_create_query_update_uses_dict_values_and_when_operator_conditions():
+    user = {"name": "Alice", "email": "alice@example.com", "status": "inactive"}
+
+    assert create_query("set_user_columns_status_when", dict, user, email_like="alice@%") == DigestedQuery(
+        "UPDATE users SET status = %s WHERE email LIKE %s",
+        ("inactive", "alice@%"),
+        False,
+        False,
+    )
+
+
 def test_create_query_update_rejects_ambiguous_duplicate_names_with_kwargs():
     with pytest.raises(ValueError, match="Keyword arguments are ambiguous for duplicate names: name"):
         create_query("set_user_columns_name_by_name", None, name="Alice")
+
+
+def test_create_query_update_rejects_when_without_named_conditions():
+    with pytest.raises(ValueError, match="Empty when clause requires named condition arguments"):
+        create_query("set_user_columns_status_when", None, status="inactive")
+
+    with pytest.raises(ValueError, match="When clauses require named field values or a typed values object"):
+        create_query("set_user_columns_status_when", None, "inactive", age_less_than=30)
 
 
 def test_create_query_update_rejects_typed_kwargs_with_extra_positional_conditions():

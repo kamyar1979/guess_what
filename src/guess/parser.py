@@ -4,10 +4,20 @@ from typing import Optional, Any
 
 import inflection
 
-from guess.model import Clause, clause_mapping, RawQuery, DigestedQuery
+from guess.model import Clause, Operator, clause_mapping, RawQuery, DigestedQuery
 
 clause_handlers = {}
 PRIMARY_KEY_PATTERN = r"^(id|{entity}_id)$"
+operator_mapping = {
+    Operator.EQUAL: "=",
+    Operator.NOT_EQUAL: "<>",
+    Operator.GREATER_THAN: ">",
+    Operator.GREATER_THAN_OR_EQUAL: ">=",
+    Operator.LESS_THAN: "<",
+    Operator.LESS_THAN_OR_EQUAL: "<=",
+    Operator.LIKE: "LIKE",
+    Operator.NOT_LIKE: "NOT LIKE",
+}
 
 
 def register_clause(clause: Clause):
@@ -23,10 +33,10 @@ FUNC_NAME_PATTERN = rf"""
 (?P<async>async_)?
 (?P<clause>{'|'.join(clause_mapping.keys())})
 _
-(?P<target>\w+?)
+(?P<target>(?:(?!_(?:columns|by|when)(?:_|$))\w)+?)
 
-(?:_columns_(?P<fields>(?:(?!_by_)\w)+))?
-(?P<by>_by(?:_(?P<conditions>\w+?))?)?
+(?:_columns_(?P<fields>(?:(?!_(?:by|when)(?:_|$))\w)+))?
+(?:(?P<by>_by)(?:_(?P<conditions>\w+?))?|(?P<when>_when))?
 $
 """
 
@@ -106,6 +116,120 @@ def prepare_kwargs(raw_query: RawQuery, names: tuple[str, ...], *, reject_duplic
     return tuple(raw_query.kwargs[k] for k in names)
 
 
+def parse_named_argument_to_condition(name: str) -> tuple[str, Operator]:
+    for operator in sorted(Operator, key=lambda item: len(item.value), reverse=True):
+        suffix = f"_{operator.value}"
+        if name.endswith(suffix):
+            field_name = name[:-len(suffix)]
+            if not field_name:
+                raise ValueError(f"Missing field name for operator: {operator.value}")
+            return field_name, operator
+    return name, Operator.EQUAL
+
+
+def parse_named_arguments_to_where_clause(named_arguments: dict[str, Any]) -> str:
+    if not named_arguments:
+        return ""
+
+    conditions = []
+    for name in named_arguments:
+        field_name, operator = parse_named_argument_to_condition(name)
+        conditions.append(f"{field_name} {operator_mapping[operator]} %s")
+    return f" WHERE {' AND '.join(conditions)}"
+
+
+def prepare_named_condition_arguments(raw_query: RawQuery) -> tuple[Any, ...]:
+    if raw_query.args and raw_query.kwargs:
+        raise ValueError("You can not use positional and named arguments at the same time here!")
+    if raw_query.args:
+        raise ValueError("When clauses require named arguments")
+    if not raw_query.kwargs:
+        raise ValueError("Empty when clause requires named arguments")
+    return tuple(raw_query.kwargs.values())
+
+
+def get_update_named_condition_arguments(raw_query: RawQuery) -> dict[str, Any]:
+    kwargs = dict(raw_query.kwargs or {})
+    obj, result_type, remaining_kwargs = split_model_kwargs(raw_query)
+    positional_result_type = None
+
+    if obj is None and raw_query.args:
+        positional_result_type = raw_query.result_type or get_model_type_from_value(raw_query.args[0])
+
+    uses_values_object = obj is not None or positional_result_type is not None
+    if uses_values_object:
+        condition_arguments = remaining_kwargs
+    else:
+        field_names = set(raw_query.fields or [])
+        condition_arguments = {name: value for name, value in kwargs.items() if name not in field_names}
+
+    if not condition_arguments:
+        raise ValueError("Empty when clause requires named condition arguments")
+    return condition_arguments
+
+
+def prepare_update_when_arguments(raw_query: RawQuery) -> tuple[Any, ...]:
+    if not raw_query.kwargs:
+        raise ValueError("Empty when clause requires named condition arguments")
+
+    obj, result_type, remaining_kwargs = split_model_kwargs(raw_query)
+    condition_arguments = get_update_named_condition_arguments(raw_query)
+
+    if obj is not None:
+        if raw_query.args:
+            raise ValueError("You can not provide typed values both positionally and by keyword.")
+        field_args = prepare_arguments(RawQuery(
+            raw_query.clause,
+            raw_query.target,
+            raw_query.fields,
+            None,
+            raw_query.is_list_result,
+            raw_query.is_async_func,
+            (obj,),
+            None,
+            result_type,
+        ))
+    elif raw_query.args:
+        if len(raw_query.args) > 1:
+            raise ValueError("When clauses support only one positional values object.")
+        result_type = raw_query.result_type or get_model_type_from_value(raw_query.args[0])
+        if not result_type:
+            raise ValueError("When clauses require named field values or a typed values object.")
+        field_args = prepare_arguments(RawQuery(
+            raw_query.clause,
+            raw_query.target,
+            raw_query.fields,
+            None,
+            raw_query.is_list_result,
+            raw_query.is_async_func,
+            raw_query.args,
+            None,
+            result_type,
+        ))
+    else:
+        field_names = tuple(raw_query.fields or ())
+        missing = [name for name in field_names if name not in remaining_kwargs]
+        if missing:
+            raise ValueError(f"Missing keyword arguments: {','.join(missing)}")
+        field_args = tuple(remaining_kwargs[name] for name in field_names)
+
+    return field_args + tuple(condition_arguments.values())
+
+
+def create_condition_clause(raw_query: RawQuery) -> str:
+    if raw_query.is_when_condition:
+        return parse_named_arguments_to_where_clause(raw_query.kwargs or {})
+
+    condition_fields = get_conditions(raw_query)
+    return f" WHERE {' AND '.join(f'{field} = %s' for field in condition_fields)}" if condition_fields else ""
+
+
+def create_update_condition_clause(raw_query: RawQuery) -> str:
+    if raw_query.is_when_condition:
+        return parse_named_arguments_to_where_clause(get_update_named_condition_arguments(raw_query))
+    return create_condition_clause(raw_query)
+
+
 def get_pk_field(raw_query: RawQuery) -> str | None:
     if not raw_query.result_type or raw_query.result_type == dict:
         return "id"
@@ -153,12 +277,13 @@ def parse_function_to_query(func_name: str, result_type: Optional[type] = None, 
         return RawQuery(clause,
                         target,
                         m.group("fields").split('_and_') if m.group("fields") else None,
-                        m.group("conditions").split('_and_') if m.group("conditions") else ([] if m.group("by") else None),
+                        m.group("conditions").split('_and_') if m.group("conditions") else ([] if m.group("by") or m.group("when") else None),
                         clause != Clause.CALL and inflection.pluralize(m.group("target")) == m.group("target"),
                         m.group("async") == "async_",
                         args,
                         kwargs,
-                        result_type
+                        result_type,
+                        m.group("when") is not None
                         )
     return None
 
@@ -172,10 +297,17 @@ def prepare_arguments(raw_query: RawQuery) -> tuple[Any, ...]:
         return raw_query.args or ()
 
     if raw_query.clause == Clause.SELECT:
+        if raw_query.is_when_condition:
+            return prepare_named_condition_arguments(raw_query)
         return prepare_kwargs(raw_query, get_conditions(raw_query), reject_duplicates=True)
 
     if raw_query.clause == Clause.DELETE:
+        if raw_query.is_when_condition:
+            return prepare_named_condition_arguments(raw_query)
         return prepare_kwargs(raw_query, get_conditions(raw_query), reject_duplicates=True)
+
+    if raw_query.clause == Clause.UPDATE and raw_query.is_when_condition:
+        return prepare_update_when_arguments(raw_query)
 
     if raw_query.clause == Clause.UPDATE and raw_query.kwargs:
         obj, result_type, remaining_kwargs = split_model_kwargs(raw_query)
@@ -275,8 +407,7 @@ def prepare_arguments(raw_query: RawQuery) -> tuple[Any, ...]:
 
 @register_clause(Clause.SELECT)
 def create_select_query(raw_query: RawQuery) -> DigestedQuery:
-    condition_fields = get_conditions(raw_query)
-    conditions = f" WHERE {' AND '.join(f'{f} = %s' for f in condition_fields)}" if condition_fields else ""
+    conditions = create_condition_clause(raw_query)
     fields_str = ",".join(raw_query.fields) if raw_query.fields else "*"
     query_text = f"SELECT {fields_str} FROM {raw_query.target}{conditions}"
     return DigestedQuery(query_text, prepare_arguments(raw_query), raw_query.is_list_result, raw_query.is_async_func)
@@ -287,8 +418,7 @@ def create_update_query(raw_query: RawQuery) -> DigestedQuery:
     if not raw_query.fields:
         raise ValueError("UPDATE queries require columns")
 
-    condition_fields = get_conditions(raw_query)
-    conditions = f" WHERE {' AND '.join(f'{f} = %s' for f in condition_fields)}" if condition_fields else ""
+    conditions = create_update_condition_clause(raw_query)
     set_clause = ",".join(f"{f} = %s" for f in (raw_query.fields or []))
     query_text = f"UPDATE {raw_query.target} SET {set_clause}{conditions}"
     return DigestedQuery(query_text, prepare_arguments(raw_query), raw_query.is_list_result, raw_query.is_async_func)
@@ -327,8 +457,7 @@ def create_insert_query(raw_query: RawQuery) -> DigestedQuery:
 
 @register_clause(Clause.DELETE)
 def create_delete_query(raw_query: RawQuery) -> DigestedQuery:
-    condition_fields = get_conditions(raw_query)
-    conditions = f" WHERE {' AND '.join(f'{f} = %s' for f in condition_fields)}" if condition_fields else ""
+    conditions = create_condition_clause(raw_query)
     query_text = f"DELETE FROM {raw_query.target}{conditions}"
     return DigestedQuery(query_text, prepare_arguments(raw_query), raw_query.is_list_result, raw_query.is_async_func)
 
