@@ -1,12 +1,16 @@
 import re
 from dataclasses import is_dataclass, fields
 from typing import Optional, Any
-
+from cachetools import cached, LRUCache
 import inflection
 
-from guess.model import Clause, Operator, clause_mapping, RawQuery, DigestedQuery
+from guess.model import Clause, Operator, ParsedQuery, clause_mapping, RawQuery, DigestedQuery
 
 clause_handlers = {}
+argument_handlers = {}
+parse_function_cache = LRUCache(maxsize=1024)
+select_query_cache = LRUCache(maxsize=1024)
+select_argument_names_cache = LRUCache(maxsize=1024)
 PRIMARY_KEY_PATTERN = r"^(id|{entity}_id)$"
 operator_mapping = {
     Operator.EQUAL: "=",
@@ -23,6 +27,14 @@ operator_mapping = {
 def register_clause(clause: Clause):
     def decorate(func):
         clause_handlers[clause] = func
+        return func
+
+    return decorate
+
+
+def register_argument_handler(clause: Clause):
+    def decorate(func):
+        argument_handlers[clause] = func
         return func
 
     return decorate
@@ -270,46 +282,92 @@ def get_conditions(raw_query: RawQuery) -> tuple[str, ...]:
     return get_primary_key_condition(raw_query)
 
 
-def parse_function_to_query(func_name: str, result_type: Optional[type] = None, *args, **kwargs) -> Optional[RawQuery]:
+@cached(cache=parse_function_cache)
+def parse_function_name(func_name: str) -> Optional[ParsedQuery]:
     if m := regex.match(func_name):
         clause = clause_mapping[m.group("clause")]
         target = m.group("target") if clause == Clause.CALL else inflection.pluralize(m.group("target"))
-        return RawQuery(clause,
-                        target,
-                        m.group("fields").split('_and_') if m.group("fields") else None,
-                        m.group("conditions").split('_and_') if m.group("conditions") else ([] if m.group("by") or m.group("when") else None),
-                        clause != Clause.CALL and inflection.pluralize(m.group("target")) == m.group("target"),
-                        m.group("async") == "async_",
-                        args,
-                        kwargs,
-                        result_type,
-                        m.group("when") is not None
-                        )
+        return ParsedQuery(
+            clause,
+            target,
+            tuple(m.group("fields").split('_and_')) if m.group("fields") else None,
+            tuple(m.group("conditions").split('_and_')) if m.group("conditions") else (() if m.group("by") or m.group("when") else None),
+            clause != Clause.CALL and inflection.pluralize(m.group("target")) == m.group("target"),
+            m.group("async") == "async_",
+            m.group("when") is not None,
+        )
     return None
 
 
-def prepare_arguments(raw_query: RawQuery) -> tuple[Any, ...]:
-    if raw_query.clause == Clause.CALL:
-        if raw_query.args and raw_query.kwargs:
-            raise ValueError("You can not use positional and named arguments at the same time here!")
-        if raw_query.kwargs:
-            return tuple(raw_query.kwargs.values())
-        return raw_query.args or ()
+def bind_parsed_query(parsed_query: ParsedQuery, result_type: Optional[type] = None, *args, **kwargs) -> RawQuery:
+    return RawQuery(
+        parsed_query.clause,
+        parsed_query.target,
+        list(parsed_query.fields) if parsed_query.fields is not None else None,
+        list(parsed_query.conditions) if parsed_query.conditions is not None else None,
+        parsed_query.is_list_result,
+        parsed_query.is_async_func,
+        args,
+        kwargs,
+        result_type,
+        parsed_query.is_when_condition,
+    )
 
-    if raw_query.clause == Clause.SELECT:
-        if raw_query.is_when_condition:
-            return prepare_named_condition_arguments(raw_query)
-        return prepare_kwargs(raw_query, get_conditions(raw_query), reject_duplicates=True)
 
-    if raw_query.clause == Clause.DELETE:
-        if raw_query.is_when_condition:
-            return prepare_named_condition_arguments(raw_query)
-        return prepare_kwargs(raw_query, get_conditions(raw_query), reject_duplicates=True)
+def parse_function_to_query(func_name: str, result_type: Optional[type] = None, *args, **kwargs) -> Optional[RawQuery]:
+    if parsed_query := parse_function_name(func_name):
+        return bind_parsed_query(parsed_query, result_type, *args, **kwargs)
+    return None
 
-    if raw_query.clause == Clause.UPDATE and raw_query.is_when_condition:
+
+def create_select_query_cache_key(raw_query: RawQuery) -> tuple[Any, ...]:
+    return (
+        raw_query.clause,
+        raw_query.target,
+        tuple(raw_query.fields or ()),
+        tuple(raw_query.conditions) if raw_query.conditions is not None else None,
+        raw_query.is_list_result,
+        raw_query.is_async_func,
+        raw_query.is_when_condition,
+        raw_query.result_type,
+        tuple((raw_query.kwargs or {}).keys()),
+        len(raw_query.args or ()),
+    )
+
+
+@cached(cache=select_argument_names_cache, key=lambda raw_query: create_select_query_cache_key(raw_query))
+def get_select_argument_names(raw_query: RawQuery) -> tuple[str, ...]:
+    return get_conditions(raw_query)
+
+
+@cached(cache=select_query_cache, key=lambda raw_query: create_select_query_cache_key(raw_query))
+def create_select_query_shape(raw_query: RawQuery) -> DigestedQuery:
+    conditions = create_condition_clause(raw_query)
+    fields_str = ",".join(raw_query.fields) if raw_query.fields else "*"
+    query_text = f"SELECT {fields_str} FROM {raw_query.target}{conditions}"
+    return DigestedQuery(query_text, None, raw_query.is_list_result, raw_query.is_async_func)
+
+
+@register_argument_handler(Clause.SELECT)
+def prepare_select_arguments(raw_query: RawQuery) -> tuple[Any, ...]:
+    if raw_query.is_when_condition:
+        return prepare_named_condition_arguments(raw_query)
+    return prepare_kwargs(raw_query, get_select_argument_names(raw_query), reject_duplicates=True)
+
+
+@register_argument_handler(Clause.DELETE)
+def prepare_delete_arguments(raw_query: RawQuery) -> tuple[Any, ...]:
+    if raw_query.is_when_condition:
+        return prepare_named_condition_arguments(raw_query)
+    return prepare_kwargs(raw_query, get_conditions(raw_query), reject_duplicates=True)
+
+
+@register_argument_handler(Clause.UPDATE)
+def prepare_update_arguments(raw_query: RawQuery) -> tuple[Any, ...]:
+    if raw_query.is_when_condition:
         return prepare_update_when_arguments(raw_query)
 
-    if raw_query.clause == Clause.UPDATE and raw_query.kwargs:
+    if raw_query.kwargs:
         obj, result_type, remaining_kwargs = split_model_kwargs(raw_query)
         condition_names = get_conditions(raw_query)
         if not result_type:
@@ -349,7 +407,12 @@ def prepare_arguments(raw_query: RawQuery) -> tuple[Any, ...]:
         ), condition_names)
         return obj_args + condition_args
 
-    if raw_query.clause == Clause.INSERT and raw_query.kwargs:
+    return prepare_model_or_positional_arguments(raw_query)
+
+
+@register_argument_handler(Clause.INSERT)
+def prepare_insert_arguments(raw_query: RawQuery) -> tuple[Any, ...]:
+    if raw_query.kwargs:
         obj, result_type, remaining_kwargs = split_model_kwargs(raw_query)
         if obj is not None:
             if remaining_kwargs:
@@ -370,6 +433,19 @@ def prepare_arguments(raw_query: RawQuery) -> tuple[Any, ...]:
         names = tuple(raw_query.fields) if raw_query.fields else tuple(raw_query.kwargs.keys())
         return prepare_kwargs(raw_query, names)
 
+    return prepare_model_or_positional_arguments(raw_query)
+
+
+@register_argument_handler(Clause.CALL)
+def prepare_call_arguments(raw_query: RawQuery) -> tuple[Any, ...]:
+    if raw_query.args and raw_query.kwargs:
+        raise ValueError("You can not use positional and named arguments at the same time here!")
+    if raw_query.kwargs:
+        return tuple(raw_query.kwargs.values())
+    return raw_query.args or ()
+
+
+def prepare_model_or_positional_arguments(raw_query: RawQuery) -> tuple[Any, ...]:
     if (
         raw_query.clause in (Clause.INSERT, Clause.UPDATE)
         and not raw_query.result_type
@@ -405,12 +481,14 @@ def prepare_arguments(raw_query: RawQuery) -> tuple[Any, ...]:
         return raw_query.args or ()
 
 
+def prepare_arguments(raw_query: RawQuery) -> tuple[Any, ...]:
+    return argument_handlers[raw_query.clause](raw_query)
+
+
 @register_clause(Clause.SELECT)
 def create_select_query(raw_query: RawQuery) -> DigestedQuery:
-    conditions = create_condition_clause(raw_query)
-    fields_str = ",".join(raw_query.fields) if raw_query.fields else "*"
-    query_text = f"SELECT {fields_str} FROM {raw_query.target}{conditions}"
-    return DigestedQuery(query_text, prepare_arguments(raw_query), raw_query.is_list_result, raw_query.is_async_func)
+    query_shape = create_select_query_shape(raw_query)
+    return DigestedQuery(query_shape.text, prepare_arguments(raw_query), query_shape.is_list, query_shape.is_async)
 
 
 @register_clause(Clause.UPDATE)
@@ -451,7 +529,7 @@ def create_insert_query(raw_query: RawQuery) -> DigestedQuery:
 
     columns = f"( {','.join(insert_fields)} ) " if insert_fields else ""
     value_count = len(insert_fields) if insert_fields else len(args)
-    query_text = f"INSERT INTO {raw_query.target} {columns}VALUES ({','.join('%s' for _ in range(value_count))})"
+    query_text = f"INSERT INTO {raw_query.target} {columns} VALUES ({','.join('%s' for _ in range(value_count))})"
     return DigestedQuery(query_text, args, raw_query.is_list_result, raw_query.is_async_func)
 
 

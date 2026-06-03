@@ -7,11 +7,15 @@ import pytest
 from guess.model import Clause, DigestedQuery, RawQuery
 from guess.parser import (
     parse_function_to_query,
+    parse_function_name,
     create_query,
+    create_select_query_shape,
     get_conditions,
     parse_named_arguments_to_where_clause,
     prepare_kwargs,
     regex,
+    select_argument_names_cache,
+    select_query_cache,
 )
 
 
@@ -56,6 +60,47 @@ def test_prepare_kwargs_accepts_ordered_tuple_names():
     query = RawQuery(Clause.SELECT, "users", kwargs={"status": "pending", "name": "Alice"})
 
     assert prepare_kwargs(query, ("name", "status")) == ("Alice", "pending")
+
+
+def test_parse_function_name_is_cached_without_call_values():
+    parse_function_name.cache_clear()
+
+    parsed = parse_function_name("get_user_by_id")
+    cached = parse_function_name("get_user_by_id")
+    first = parse_function_to_query("get_user_by_id", None, 1)
+    second = parse_function_to_query("get_user_by_id", None, 2)
+
+    assert parsed is cached
+    assert first is not None
+    assert second is not None
+    assert first.args == (1,)
+    assert second.args == (2,)
+    assert first.conditions == ["id"]
+    assert second.conditions == ["id"]
+
+
+def test_select_query_shape_is_cached_without_argument_values():
+    create_select_query_shape.cache_clear()
+
+    first = create_query("get_users_when", None, age_less_than=30)
+    second = create_query("get_users_when", None, age_less_than=40)
+    third = create_query("get_users_when", None, age_greater_than=40)
+
+    assert first == DigestedQuery("SELECT * FROM users WHERE age < %s", (30,), True, False)
+    assert second == DigestedQuery("SELECT * FROM users WHERE age < %s", (40,), True, False)
+    assert third == DigestedQuery("SELECT * FROM users WHERE age > %s", (40,), True, False)
+    assert len(select_query_cache) == 2
+
+
+def test_select_argument_names_are_cached_without_argument_values():
+    select_argument_names_cache.clear()
+
+    first = create_query("get_user_by_id", None, 1)
+    second = create_query("get_user_by_id", None, 2)
+
+    assert first == DigestedQuery("SELECT * FROM users WHERE id = %s", (1,), False, False)
+    assert second == DigestedQuery("SELECT * FROM users WHERE id = %s", (2,), False, False)
+    assert len(select_argument_names_cache) == 1
 
 
 def test_parse_func_name_select():
