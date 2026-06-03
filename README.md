@@ -270,3 +270,10 @@ PostgreSQL integration tests are optional. They run only when a DSN is provided,
 GUESS_WHAT_POSTGRES_DSN="postgresql://user:password@localhost:5432/dbname" \
 PYTHONPATH=src uv run --with psycopg2-binary pytest tests/test_integration_postgres.py
 ```
+
+MySQL/MariaDB integration tests are optional too:
+
+```bash
+GUESS_WHAT_MYSQL_DSN="mariadb://user:password@localhost:3306/dbname" \
+PYTHONPATH=src uv run --with mysql-connector-python pytest tests/test_integration_mysql.py
+```
