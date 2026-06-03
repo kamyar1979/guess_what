@@ -9,7 +9,10 @@ from guess.parser import (
     parse_function_to_query,
     parse_function_name,
     create_query,
+    create_delete_query_shape,
     create_select_query_shape,
+    delete_argument_names_cache,
+    delete_query_cache,
     get_conditions,
     parse_named_arguments_to_where_clause,
     prepare_kwargs,
@@ -101,6 +104,30 @@ def test_select_argument_names_are_cached_without_argument_values():
     assert first == DigestedQuery("SELECT * FROM users WHERE id = %s", (1,), False, False)
     assert second == DigestedQuery("SELECT * FROM users WHERE id = %s", (2,), False, False)
     assert len(select_argument_names_cache) == 1
+
+
+def test_delete_query_shape_is_cached_without_argument_values():
+    create_delete_query_shape.cache_clear()
+
+    first = create_query("delete_users_when", None, age_less_than=30)
+    second = create_query("delete_users_when", None, age_less_than=40)
+    third = create_query("delete_users_when", None, age_greater_than=40)
+
+    assert first == DigestedQuery("DELETE FROM users WHERE age < %s", (30,), True, False)
+    assert second == DigestedQuery("DELETE FROM users WHERE age < %s", (40,), True, False)
+    assert third == DigestedQuery("DELETE FROM users WHERE age > %s", (40,), True, False)
+    assert len(delete_query_cache) == 2
+
+
+def test_delete_argument_names_are_cached_without_argument_values():
+    delete_argument_names_cache.clear()
+
+    first = create_query("delete_user_by_id", None, 1)
+    second = create_query("delete_user_by_id", None, 2)
+
+    assert first == DigestedQuery("DELETE FROM users WHERE id = %s", (1,), False, False)
+    assert second == DigestedQuery("DELETE FROM users WHERE id = %s", (2,), False, False)
+    assert len(delete_argument_names_cache) == 1
 
 
 def test_parse_func_name_select():
