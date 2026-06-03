@@ -77,6 +77,13 @@ def test_sqlite_database_dynamic_methods_end_to_end():
     assert db.get_users_by(status="active", email="bob@example.com") == [
         (2, "Bob", "bob@example.com", "active"),
     ]
+    assert db.get_users_when(status_not_equal="pending") == [
+        (2, "Bob", "bob@example.com", "active"),
+    ]
+
+    db.set_user_columns_status_when(status="review", email_like="bob@%")
+
+    assert db.get_user_columns_name_by_status("review") == ("Bob",)
 
     db.set_user_columns_status_by_email("active", "alice@example.com")
     db.set_user_columns_status_by_email(email="bob@example.com", status="pending")
@@ -86,7 +93,7 @@ def test_sqlite_database_dynamic_methods_end_to_end():
     ]
     assert db.get_user_columns_name_by_status(status="pending") == ("Bob",)
 
-    db.delete_user_by(email="bob@example.com")
+    db.delete_user_when(email_like="bob@%")
 
     assert db.get_users_columns_name_and_status() == [("Alice", "active")]
     assert db.get_user_by_email("bob@example.com") is None
@@ -185,18 +192,33 @@ def test_sqlite_database_dataclass_insert_select_and_update():
         User("Cara", "cara@example.com", "active"),
         "Cara",
     )
+    db.set_user_columns_status_when(
+        User("Alice", "alice@example.com", "archived"),
+        email_like="alice@%",
+    )
+    db.set_user_columns_status_when(
+        user={"name": "Bob", "email": "bob@example.com", "status": "archived"},
+        email_like="bob@%",
+    )
+
+    with pytest.raises(ValueError, match="only one positional values object"):
+        db.set_user_columns_name_and_email_when(
+            "Cara",
+            "cara-new@example.com",
+            status="active",
+        )
 
     assert db.get_user_by_name[dict]("Alice") == {
         "id": 1,
         "name": "Alice",
         "email": "alice@example.com",
-        "status": "active",
+        "status": "archived",
     }
     assert db.get_user_by_name[dict]("Bob") == {
         "id": 2,
         "name": "Bob",
         "email": "bob@example.com",
-        "status": "pending",
+        "status": "archived",
     }
     assert db.get_user_by_name[dict]("Cara") == {
         "id": 3,

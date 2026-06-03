@@ -224,87 +224,34 @@ user = db.get_user_by_name[User]("Alice")
 
 ## 🛠️ Method Naming Conventions
 
-`guess-what` parses the method names you call using regular expressions to map them to SQL queries. The syntax is composed of:
+`guess-what` parses method names into SQL using a naming grammar. The full reference lives in [docs/naming-conventions.md](docs/naming-conventions.md).
 
-`[clause]_[table]_columns_[fields]_by_[conditions]`
-
-For database calls, use:
-
-`call_[function_or_procedure]`
-
-*   **`[clause]`**: Supported clauses are:
-    *   **SELECT**: `get`, `fetch`, `select`
-    *   **UPDATE**: `set`, `edit`, `change`, `modify`, `update`
-    *   **INSERT**: `add`, `create`, `insert`
-    *   **DELETE**: `delete`, `remove`, `omit`, `drop`
-    *   **CALL**: `call`, `invoke`
-*   **`[table]`**: Singular form of the database table (automatically pluralized at runtime using inflection). E.g., `user` -> `users`. `call_...` targets are not pluralized.
-*   **`[fields]`** *(optional)*: Underscore-separated column list joined with `_and_`. E.g., `name_and_email` -> `name, email`.
-*   **`[conditions]`** *(optional)*: Underscore-separated filter columns joined with `_and_`. E.g., `status_and_role` -> `WHERE status = %s AND role = %s`.
-
-Keyword arguments are supported for SELECT, UPDATE, INSERT, and DELETE. Values are ordered by the parsed method name, so caller order does not matter:
+Common patterns:
 
 ```python
-db.get_user_by_name_and_status(status="pending", name="Alice")
-db.set_user_columns_status_by_name(name="Alice", status="active")
-db.add_user_columns_name_and_email(email="alice@example.com", name="Alice")
-db.delete_user_by_status_and_role(role="member", status="inactive")
-```
-
-For SELECT and DELETE, keyword arguments can also define conditions directly, so `_by_...` is optional when using kwargs. This is equivalent to the `_by_...` form, but shorter for common lookups and deletes:
-
-```python
-db.get_user(id=123)
-db.get_users(status="pending")
-db.get_user_columns_name_and_email(status="active", role="admin")
-db.delete_user(id=123)
-db.delete_user(status="inactive", role="member")
-```
-
-You can also keep the explicit `_by` marker and let kwargs provide the condition names:
-
-```python
+db.get_users()
+db.get_user_by_id(123)
 db.get_users_by(name="Alice", email="alice@example.com")
-db.delete_users_by(status="inactive", role="member")
+db.get_user_columns_name_and_email(email="alice@example.com")
+db.add_user_columns_name_and_email(name="Alice", email="alice@example.com")
+db.set_user_columns_status_by_id("active", 123)
+db.delete_user(id=123)
 ```
 
-For single-row SELECTs, one positional argument can also imply the primary key condition. Without a typed model, `guess-what` uses `id`. With a typed dataclass or Pydantic model, it looks for `id` or an entity-specific key such as `user_id`; if neither exists, it raises an error instead of guessing the wrong column:
+Use `_when` for operator conditions:
 
 ```python
-db.get_user(123)        # SELECT * FROM users WHERE id = %s
-db.get_user[User](123)  # Uses User.id or User.user_id
+db.get_users_when(age_less_than=30, name_like="Ali%")
+db.set_user_columns_status_when(status="archived", last_seen_less_than=cutoff)
+db.delete_logs_when(created_at_less_than=cutoff)
 ```
 
-Database functions and stored procedures can also be called with positional or keyword arguments. Keyword arguments are rendered as named database function parameters, so this form requires database support for named function-call arguments:
+Database functions and stored procedures use `call_...` or `invoke_...`:
 
 ```python
 db.call_refresh_cache("users", 10)
-db.call_refresh_cache(table="users", limit=10)  # refresh_cache(table => %s,limit => %s)
+db.invoke_refresh_cache(table="users", limit=10)
 ```
-
-### Examples:
-*   `get_users` ➡️ `SELECT * FROM users`
-*   `fetch_users` ➡️ `SELECT * FROM users`
-*   `get_user_by_id` ➡️ `SELECT * FROM users WHERE id = %s`
-*   `get_user(id=123)` ➡️ `SELECT * FROM users WHERE id = %s`
-*   `get_users_by(name="Alice", email="alice@example.com")` ➡️ `SELECT * FROM users WHERE name = %s AND email = %s`
-*   `get_user(123)` ➡️ `SELECT * FROM users WHERE id = %s`
-*   `get_user_columns_name_and_email_by_id` ➡️ `SELECT name,email FROM users WHERE id = %s`
-*   `add_user("Alice", "alice@example.com", "active")` ➡️ `INSERT INTO users VALUES (%s,%s,%s)`
-*   `create_user("Alice", "alice@example.com", "active")` ➡️ `INSERT INTO users VALUES (%s,%s,%s)`
-*   `add_user(User("Alice", "alice@example.com", "active"))` ➡️ `INSERT INTO users ( name,email,status ) VALUES (%s,%s,%s)`
-*   `set_user_columns_status_by_id` ➡️ `UPDATE users SET status = %s WHERE id = %s`
-*   `change_user_columns_status_by_id` ➡️ `UPDATE users SET status = %s WHERE id = %s`
-*   `modify_user_columns_status_by_id` ➡️ `UPDATE users SET status = %s WHERE id = %s`
-*   `set_user_columns_status_by_id(User(...), 1)` ➡️ `UPDATE users SET status = %s WHERE id = %s`
-*   `delete_user_by_id` ➡️ `DELETE FROM users WHERE id = %s`
-*   `omit_user_by_id` ➡️ `DELETE FROM users WHERE id = %s`
-*   `drop_user_by_id` ➡️ `DELETE FROM users WHERE id = %s`
-*   `delete_user(id=123)` ➡️ `DELETE FROM users WHERE id = %s`
-*   `delete_users_by(status="inactive")` ➡️ `DELETE FROM users WHERE status = %s`
-*   `call_refresh_cache("users", 10)` ➡️ `refresh_cache(%s,%s)`
-*   `invoke_refresh_cache("users", 10)` ➡️ `refresh_cache(%s,%s)`
-*   `call_refresh_cache(table="users", limit=10)` ➡️ `refresh_cache(table => %s,limit => %s)`
 
 ---
 
