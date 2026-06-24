@@ -78,8 +78,8 @@ def test_parse_function_name_is_cached_without_call_values():
     assert second is not None
     assert first.args == (1,)
     assert second.args == (2,)
-    assert first.conditions == ["id"]
-    assert second.conditions == ["id"]
+    assert first.conditions == ("id",)
+    assert second.conditions == ("id",)
 
 
 def test_select_query_shape_is_cached_without_argument_values():
@@ -163,15 +163,15 @@ def test_parse_func_name_select():
     assert q.clause == Clause.SELECT
     assert q.target == "users"
     assert q.fields is None
-    assert q.conditions == ["id"]
+    assert q.conditions == ("id",)
 
     # Select columns with single condition
     q = parse_function_to_query("get_user_columns_name_and_email_by_id")
     assert q is not None
     assert q.clause == Clause.SELECT
     assert q.target == "users"
-    assert q.fields == ["name", "email"]
-    assert q.conditions == ["id"]
+    assert q.fields == ("name", "email",)
+    assert q.conditions == ("id",)
 
     # Select count
     q = parse_function_to_query("get_users_count_when")
@@ -179,7 +179,7 @@ def test_parse_func_name_select():
     assert q.clause == Clause.SELECT
     assert q.target == "users"
     assert q.fields is None
-    assert q.conditions == []
+    assert q.conditions == ()
     assert q.is_when_condition is True
     assert q.is_count is True
     assert q.is_list_result is False
@@ -189,8 +189,8 @@ def test_parse_func_name_select():
     assert q is not None
     assert q.clause == Clause.SELECT
     assert q.target == "users"
-    assert q.fields == ["name"]
-    assert q.conditions == ["status", "role"]
+    assert q.fields == ("name",)
+    assert q.conditions == ("status", "role",)
 
     # Explicit by-clause with conditions inferred from kwargs at call time
     q = parse_function_to_query("get_users_by")
@@ -198,7 +198,7 @@ def test_parse_func_name_select():
     assert q.clause == Clause.SELECT
     assert q.target == "users"
     assert q.fields is None
-    assert q.conditions == []
+    assert q.conditions == ()
 
     # Explicit when-clause for richer conditions in later parsing steps
     m = regex.match("get_users_when")
@@ -210,8 +210,8 @@ def test_parse_func_name_select():
     assert q is not None
     assert q.clause == Clause.SELECT
     assert q.target == "users"
-    assert q.fields == ["name"]
-    assert q.conditions == []
+    assert q.fields == ("name",)
+    assert q.conditions == ()
     assert q.is_when_condition is True
 
     assert parse_function_to_query("get_user_columns_name_when_age_less_than") is None
@@ -221,21 +221,21 @@ def test_parse_func_name_select():
     assert q is not None
     assert q.clause == Clause.SELECT
     assert q.target == "users"
-    assert q.fields == ["name", "email"]
-    assert q.joins == [Join("posts")]
+    assert q.fields == ("name", "email",)
+    assert q.joins == (Join("posts"),)
     assert q.conditions is None
 
     q = parse_function_to_query("get_users_with_posts_columns_date")
     assert q is not None
     assert q.target == "users"
     assert q.fields is None
-    assert q.joins == [Join("posts", ("date",))]
+    assert q.joins == (Join("posts", ("date",)),)
 
     q = parse_function_to_query("get_user_columns_name_and_email_with_posts_columns_title_and_date")
     assert q is not None
     assert q.target == "users"
-    assert q.fields == ["name", "email"]
-    assert q.joins == [Join("posts", ("title", "date"))]
+    assert q.fields == ("name", "email",)
+    assert q.joins == (Join("posts", ("title", "date")),)
     assert q.is_list_result is False
 
     q = parse_function_to_query(
@@ -243,12 +243,12 @@ def test_parse_func_name_select():
     )
     assert q is not None
     assert q.target == "users"
-    assert q.fields == ["name"]
-    assert q.joins == [
+    assert q.fields == ("name",)
+    assert q.joins == (
         Join("posts", ("title",)),
         Join("comments", ("body", "created_at")),
-    ]
-    assert q.conditions == ["id"]
+    )
+    assert q.conditions == ("id",)
 
     assert parse_function_to_query("set_users_with_posts_columns_title_by_id") is None
 
@@ -272,39 +272,39 @@ def test_parse_func_name_semantic_aliases():
     assert q is not None
     assert q.clause == Clause.SELECT
     assert q.target == "users"
-    assert q.conditions == ["id"]
+    assert q.conditions == ("id",)
 
     q = parse_function_to_query("change_user_columns_status_by_id")
     assert q is not None
     assert q.clause == Clause.UPDATE
     assert q.target == "users"
-    assert q.fields == ["status"]
-    assert q.conditions == ["id"]
+    assert q.fields == ("status",)
+    assert q.conditions == ("id",)
 
     q = parse_function_to_query("modify_user_columns_status_by_id")
     assert q is not None
     assert q.clause == Clause.UPDATE
     assert q.target == "users"
-    assert q.fields == ["status"]
-    assert q.conditions == ["id"]
+    assert q.fields == ("status",)
+    assert q.conditions == ("id",)
 
     q = parse_function_to_query("create_user_columns_name_and_email")
     assert q is not None
     assert q.clause == Clause.INSERT
     assert q.target == "users"
-    assert q.fields == ["name", "email"]
+    assert q.fields == ("name", "email",)
 
     q = parse_function_to_query("omit_user_by_id")
     assert q is not None
     assert q.clause == Clause.DELETE
     assert q.target == "users"
-    assert q.conditions == ["id"]
+    assert q.conditions == ("id",)
 
     q = parse_function_to_query("drop_user_by_id")
     assert q is not None
     assert q.clause == Clause.DELETE
     assert q.target == "users"
-    assert q.conditions == ["id"]
+    assert q.conditions == ("id",)
 
     q = parse_function_to_query("invoke_refresh_cache")
     assert q is not None
@@ -318,16 +318,16 @@ def test_parse_func_name_update():
     assert q is not None
     assert q.clause == Clause.UPDATE
     assert q.target == "users"
-    assert q.fields == ["status"]
-    assert q.conditions == ["id"]
+    assert q.fields == ("status",)
+    assert q.conditions == ("id",)
 
     # Edit/update variant
     q = parse_function_to_query("edit_post_columns_title_and_body_by_author_id")
     assert q is not None
     assert q.clause == Clause.UPDATE
     assert q.target == "posts"
-    assert q.fields == ["title", "body"]
-    assert q.conditions == ["author_id"]
+    assert q.fields == ("title", "body",)
+    assert q.conditions == ("author_id",)
 
 
 def test_parse_func_name_insert():
@@ -336,7 +336,7 @@ def test_parse_func_name_insert():
     assert q is not None
     assert q.clause == Clause.INSERT
     assert q.target == "users"
-    assert q.fields == ["name", "email"]
+    assert q.fields == ("name", "email",)
     assert q.conditions is None
 
 
@@ -347,7 +347,7 @@ def test_parse_func_name_delete():
     assert q.clause == Clause.DELETE
     assert q.target == "users"
     assert q.fields is None
-    assert q.conditions == ["id"]
+    assert q.conditions == ("id",)
 
     # Remove variant
     q = parse_function_to_query("remove_post_by_author_id_and_category")
@@ -355,7 +355,7 @@ def test_parse_func_name_delete():
     assert q.clause == Clause.DELETE
     assert q.target == "posts"
     assert q.fields is None
-    assert q.conditions == ["author_id", "category"]
+    assert q.conditions == ("author_id", "category",)
 
     # Explicit by-clause with conditions inferred from kwargs at call time
     q = parse_function_to_query("delete_users_by")
@@ -363,7 +363,7 @@ def test_parse_func_name_delete():
     assert q.clause == Clause.DELETE
     assert q.target == "users"
     assert q.fields is None
-    assert q.conditions == []
+    assert q.conditions == ()
 
 
 def test_parse_func_name_call():

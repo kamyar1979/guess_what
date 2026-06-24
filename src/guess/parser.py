@@ -1,40 +1,33 @@
-import re
-from dataclasses import is_dataclass, fields
 from typing import Optional, Any
 from cachetools import cached, LRUCache
-import inflection
 
-from guess.model import Clause, Join, Operator, ParsedQuery, clause_mapping, RawQuery, DigestedQuery
+from guess.conditions import (
+    create_condition_clause,
+    get_conditions,
+    get_named_argument_cache_shape,
+    parse_named_argument_to_condition,
+    parse_named_arguments_to_where_clause,
+    prepare_named_arguments_values,
+    prepare_named_condition_arguments,
+)
+from guess.grammar import parse_function_to_query, parse_function_name, regex
+from guess.model import Clause, RawQuery, DigestedQuery
+from guess.select_options import (
+    create_select_order_clause,
+    create_select_pagination_clause,
+    get_select_condition_query,
+    get_select_option_cache_shape,
+    get_select_options,
+    prepare_select_pagination_arguments,
+)
+from guess.values import get_field_names, get_model_type_from_value, get_value, split_model_kwargs
 
 clause_handlers = {}
 argument_handlers = {}
-parse_function_cache = LRUCache(maxsize=1024)
 select_query_cache = LRUCache(maxsize=1024)
 select_argument_names_cache = LRUCache(maxsize=1024)
 delete_query_cache = LRUCache(maxsize=1024)
 delete_argument_names_cache = LRUCache(maxsize=1024)
-PRIMARY_KEY_PATTERN = r"^(id|{entity}_id)$"
-IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?$")
-DESC_SORT_SUFFIXES = ("_desc", "_reverse")
-SELECT_SORT_ARGUMENTS = ("order_by", "sort_by")
-SELECT_ORDER_ARGUMENTS = set(SELECT_SORT_ARGUMENTS) | {
-    f"{name}{suffix}"
-    for name in SELECT_SORT_ARGUMENTS
-    for suffix in DESC_SORT_SUFFIXES
-}
-SELECT_PAGINATION_ARGUMENTS = {"from", "from_", "to", "offset", "limit", "page", "page_size"}
-SELECT_OPTION_ARGUMENTS = SELECT_ORDER_ARGUMENTS | SELECT_PAGINATION_ARGUMENTS
-operator_mapping = {
-    Operator.EQUAL: "=",
-    Operator.NOT_EQUAL: "<>",
-    Operator.GREATER_THAN: ">",
-    Operator.GREATER_THAN_OR_EQUAL: ">=",
-    Operator.LESS_THAN: "<",
-    Operator.LESS_THAN_OR_EQUAL: "<=",
-    Operator.LIKE: "LIKE",
-    Operator.NOT_LIKE: "NOT LIKE",
-    Operator.IN: "IN",
-}
 
 
 def register_clause(clause: Clause):
@@ -51,266 +44,6 @@ def register_argument_handler(clause: Clause):
         return func
 
     return decorate
-
-
-FUNC_NAME_PATTERN = rf"""
-^
-(?P<async>async_)?
-(?P<clause>{'|'.join(clause_mapping.keys())})
-_
-(?P<target>(?:(?!_(?:count|columns|with|by|when)(?:_|$))\w)+)
-
-(?P<count>_count)?
-(?P<body>(?:(?!_(?:by|when)(?:_|$)).)*?)
-(?:(?P<by>_by)(?:_(?P<conditions>\w+?))?|(?P<when>_when))?
-$
-"""
-
-regex = re.compile(FUNC_NAME_PATTERN, re.VERBOSE)
-
-
-def get_field_names(model) -> list[str]:
-    if model == dict:
-        raise TypeError("dict field names must come from a value")
-
-    # Accept both class and instance
-    cls = model if isinstance(model, type) else type(model)
-
-    # dataclass
-    if is_dataclass(cls):
-        return [f.name for f in fields(cls)]
-
-    # Pydantic v2
-    if hasattr(cls, "model_fields"):
-        return list(cls.model_fields.keys())
-
-    # Pydantic v1
-    if hasattr(cls, "__fields__"):
-        return list(cls.__fields__.keys())
-
-    raise TypeError(f"Unsupported type: {cls.__name__}")
-
-
-def get_value(obj: Any, field_name: str) -> Any:
-    if isinstance(obj, dict):
-        return obj[field_name]
-    return getattr(obj, field_name)
-
-
-def get_model_type_from_value(obj: Any) -> type | None:
-    if isinstance(obj, dict):
-        return dict
-    cls = type(obj)
-    if is_dataclass(cls) or hasattr(cls, "model_fields") or hasattr(cls, "__fields__"):
-        return cls
-    return None
-
-
-def split_model_kwargs(raw_query: RawQuery) -> tuple[Any | None, type | None, dict[str, Any]]:
-    kwargs = dict(raw_query.kwargs or {})
-    name = inflection.singularize(raw_query.target)
-    if name in kwargs:
-        obj = kwargs.pop(name)
-        result_type = raw_query.result_type or (dict if isinstance(obj, dict) else type(obj))
-        return obj, result_type, kwargs
-    return None, raw_query.result_type, kwargs
-
-
-def parse_columns_segment(segment: str) -> tuple[str, ...]:
-    if not segment:
-        return ()
-    return tuple(segment.split("_and_"))
-
-
-def parse_query_body(body: str) -> tuple[tuple[str, ...] | None, tuple[Join, ...] | None]:
-    if not body:
-        return None, None
-
-    parts = body.split("_with_")
-    fields = None
-    root_segment = parts[0]
-
-    if root_segment:
-        if not root_segment.startswith("_columns_"):
-            raise ValueError(f"Invalid query segment: {root_segment}")
-        fields = parse_columns_segment(root_segment.removeprefix("_columns_"))
-
-    joins = []
-    for join_segment in parts[1:]:
-        if not join_segment:
-            raise ValueError("JOIN target is required after with")
-        target, separator, columns = join_segment.partition("_columns_")
-        if not target:
-            raise ValueError("JOIN target is required after with")
-        joins.append(Join(
-            inflection.pluralize(target),
-            parse_columns_segment(columns) if separator else None,
-        ))
-
-    return fields, tuple(joins) if joins else None
-
-
-def get_select_option_names(raw_query: RawQuery) -> set[str]:
-    if raw_query.clause != Clause.SELECT:
-        return set()
-    explicit_conditions = set(raw_query.conditions or ())
-    return {
-        name
-        for name in raw_query.kwargs or {}
-        if name in SELECT_OPTION_ARGUMENTS and name not in explicit_conditions
-    }
-
-
-def get_select_options(raw_query: RawQuery) -> dict[str, Any]:
-    option_names = get_select_option_names(raw_query)
-    return {
-        name: value
-        for name, value in (raw_query.kwargs or {}).items()
-        if name in option_names
-    }
-
-
-def get_select_condition_kwargs(raw_query: RawQuery) -> dict[str, Any]:
-    option_names = get_select_option_names(raw_query)
-    return {
-        name: value
-        for name, value in (raw_query.kwargs or {}).items()
-        if name not in option_names
-    }
-
-
-def get_select_condition_query(raw_query: RawQuery) -> RawQuery:
-    return RawQuery(
-        raw_query.clause,
-        raw_query.target,
-        raw_query.fields,
-        raw_query.conditions,
-        raw_query.is_list_result,
-        raw_query.is_async_func,
-        raw_query.args,
-        get_select_condition_kwargs(raw_query),
-        raw_query.result_type,
-        raw_query.is_when_condition,
-        raw_query.joins,
-        raw_query.is_count,
-    )
-
-
-def validate_identifier(value: Any, argument_name: str) -> str:
-    if not isinstance(value, str) or not IDENTIFIER_PATTERN.match(value):
-        raise ValueError(f"Invalid {argument_name}: {value}")
-    return value
-
-
-def get_select_order_fields(value: Any, argument_name: str) -> tuple[str, ...]:
-    if isinstance(value, str):
-        return (validate_identifier(value, argument_name),)
-    if isinstance(value, tuple):
-        if not value:
-            raise ValueError(f"{argument_name} requires at least one field")
-        return tuple(validate_identifier(field, argument_name) for field in value)
-    raise ValueError(f"Invalid {argument_name}: {value}")
-
-
-def get_select_order(raw_query: RawQuery) -> tuple[tuple[str, str], ...]:
-    options = get_select_options(raw_query)
-    order_parts = []
-    for argument_name, value in options.items():
-        if argument_name not in SELECT_ORDER_ARGUMENTS:
-            continue
-        direction = "DESC" if argument_name.endswith(DESC_SORT_SUFFIXES) else "ASC"
-        order_parts.extend(
-            (field_name, direction)
-            for field_name in get_select_order_fields(value, argument_name)
-        )
-    return tuple(order_parts)
-
-
-def get_int_option(options: dict[str, Any], name: str, *, minimum: int) -> int:
-    value = options[name]
-    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
-        raise ValueError(f"{name} must be an integer greater than or equal to {minimum}")
-    return value
-
-
-def get_select_range_start(options: dict[str, Any]) -> tuple[str, int] | None:
-    has_from = "from" in options
-    has_from_ = "from_" in options
-    if has_from and has_from_:
-        raise ValueError("Use only one of from or from_")
-    if has_from:
-        return "from", get_int_option(options, "from", minimum=0)
-    if has_from_:
-        return "from_", get_int_option(options, "from_", minimum=0)
-    return None
-
-
-def get_select_pagination(raw_query: RawQuery) -> tuple[int, int | None] | None:
-    options = get_select_options(raw_query)
-    range_start = get_select_range_start(options)
-    uses_range = range_start is not None or "to" in options
-    uses_offset = "offset" in options or "limit" in options
-    uses_page = "page" in options or "page_size" in options
-    if sum((uses_range, uses_offset, uses_page)) > 1:
-        raise ValueError("Use only one pagination style")
-
-    if uses_range:
-        if range_start is None or "to" not in options:
-            raise ValueError("from/from_ pagination requires to")
-        _, start = range_start
-        stop = get_int_option(options, "to", minimum=0)
-        if stop <= start:
-            raise ValueError("to must be greater than from")
-        return stop - start, start
-
-    if uses_offset:
-        if "limit" not in options:
-            raise ValueError("offset pagination requires limit")
-        limit = get_int_option(options, "limit", minimum=0)
-        offset = get_int_option(options, "offset", minimum=0) if "offset" in options else None
-        return limit, offset
-
-    if uses_page:
-        if "page" not in options or "page_size" not in options:
-            raise ValueError("page pagination requires page and page_size")
-        page = get_int_option(options, "page", minimum=1)
-        page_size = get_int_option(options, "page_size", minimum=1)
-        return page_size, (page - 1) * page_size
-
-    return None
-
-
-def create_select_order_clause(raw_query: RawQuery) -> str:
-    order = get_select_order(raw_query)
-    if not order:
-        return ""
-    return f" ORDER BY {','.join(f'{field_name} {direction}' for field_name, direction in order)}"
-
-
-def create_select_pagination_clause(raw_query: RawQuery) -> str:
-    pagination = get_select_pagination(raw_query)
-    if not pagination:
-        return ""
-    _, offset = pagination
-    return " LIMIT %s" if offset is None else " LIMIT %s OFFSET %s"
-
-
-def prepare_select_pagination_arguments(raw_query: RawQuery) -> tuple[Any, ...]:
-    pagination = get_select_pagination(raw_query)
-    if not pagination:
-        return ()
-    limit, offset = pagination
-    return (limit,) if offset is None else (limit, offset)
-
-
-def get_select_option_cache_shape(raw_query: RawQuery) -> tuple[Any, ...]:
-    order = get_select_order(raw_query)
-    pagination = get_select_pagination(raw_query)
-    return (
-        order,
-        pagination is not None,
-        pagination[1] is not None if pagination else False,
-    )
 
 
 def prepare_kwargs(raw_query: RawQuery, names: tuple[str, ...], *, reject_duplicates: bool = False) -> tuple[Any, ...]:
@@ -337,67 +70,6 @@ def prepare_kwargs(raw_query: RawQuery, names: tuple[str, ...], *, reject_duplic
         raise ValueError(f"Unknown keyword arguments: {','.join(unknown)}")
 
     return tuple(raw_query.kwargs[k] for k in names)
-
-
-def parse_named_argument_to_condition(name: str) -> tuple[str, Operator]:
-    for operator in sorted(Operator, key=lambda item: len(item.value), reverse=True):
-        suffix = f"_{operator.value}"
-        if name.endswith(suffix):
-            field_name = name[:-len(suffix)]
-            if not field_name:
-                raise ValueError(f"Missing field name for operator: {operator.value}")
-            return field_name, operator
-    return name, Operator.EQUAL
-
-
-def get_in_values(name: str, value: Any) -> tuple[Any, ...]:
-    if not isinstance(value, (list, tuple)):
-        raise ValueError(f"IN operator requires a non-empty list or tuple: {name}")
-    if not value:
-        raise ValueError(f"IN operator requires a non-empty list or tuple: {name}")
-    return tuple(value)
-
-
-def create_named_argument_condition(name: str, value: Any) -> str:
-    field_name, operator = parse_named_argument_to_condition(name)
-    if operator == Operator.IN:
-        placeholders = ",".join("%s" for _ in get_in_values(name, value))
-        return f"{field_name} IN ({placeholders})"
-    return f"{field_name} {operator_mapping[operator]} %s"
-
-
-def prepare_named_argument_values(name: str, value: Any) -> tuple[Any, ...]:
-    _, operator = parse_named_argument_to_condition(name)
-    if operator == Operator.IN:
-        return get_in_values(name, value)
-    return (value,)
-
-
-def prepare_named_arguments_values(named_arguments: dict[str, Any]) -> tuple[Any, ...]:
-    values = []
-    for name, value in named_arguments.items():
-        values.extend(prepare_named_argument_values(name, value))
-    return tuple(values)
-
-
-def parse_named_arguments_to_where_clause(named_arguments: dict[str, Any]) -> str:
-    if not named_arguments:
-        return ""
-
-    conditions = []
-    for name, value in named_arguments.items():
-        conditions.append(create_named_argument_condition(name, value))
-    return f" WHERE {' AND '.join(conditions)}"
-
-
-def prepare_named_condition_arguments(raw_query: RawQuery) -> tuple[Any, ...]:
-    if raw_query.args and raw_query.kwargs:
-        raise ValueError("You can not use positional and named arguments at the same time here!")
-    if raw_query.args:
-        raise ValueError("When clauses require named arguments")
-    if not raw_query.kwargs:
-        raise ValueError("Empty when clause requires named arguments")
-    return prepare_named_arguments_values(raw_query.kwargs)
 
 
 def get_update_named_condition_arguments(raw_query: RawQuery) -> dict[str, Any]:
@@ -468,117 +140,10 @@ def prepare_update_when_arguments(raw_query: RawQuery) -> tuple[Any, ...]:
     return field_args + prepare_named_arguments_values(condition_arguments)
 
 
-def create_condition_clause(raw_query: RawQuery) -> str:
-    if raw_query.is_when_condition:
-        return parse_named_arguments_to_where_clause(raw_query.kwargs or {})
-
-    condition_fields = get_conditions(raw_query)
-    return f" WHERE {' AND '.join(f'{field} = %s' for field in condition_fields)}" if condition_fields else ""
-
-
 def create_update_condition_clause(raw_query: RawQuery) -> str:
     if raw_query.is_when_condition:
         return parse_named_arguments_to_where_clause(get_update_named_condition_arguments(raw_query))
     return create_condition_clause(raw_query)
-
-
-def get_pk_field(raw_query: RawQuery) -> str | None:
-    if not raw_query.result_type or raw_query.result_type == dict:
-        return "id"
-
-    entity = inflection.singularize(raw_query.target)
-    field_names = get_field_names(raw_query.result_type)
-    pk_pattern = re.compile(PRIMARY_KEY_PATTERN.format(entity=re.escape(entity)))
-
-    for field_name in field_names:
-        if pk_pattern.match(field_name):
-            return field_name
-    return None
-
-
-def get_primary_key_condition(raw_query: RawQuery) -> tuple[str, ...]:
-    if (
-        raw_query.clause != Clause.SELECT
-        or raw_query.is_list_result
-        or raw_query.kwargs
-        or raw_query.conditions
-        or len(raw_query.args or ()) != 1
-    ):
-        return ()
-
-    pk_field = get_pk_field(raw_query)
-    if not pk_field:
-        raise ValueError("Could not infer primary key field for single-argument SELECT")
-    return (pk_field,)
-
-
-def get_conditions(raw_query: RawQuery) -> tuple[str, ...]:
-    if raw_query.conditions is not None and len(raw_query.conditions) > 0:
-        return tuple(raw_query.conditions)
-    if raw_query.clause in (Clause.SELECT, Clause.DELETE) and raw_query.kwargs:
-        return tuple(raw_query.kwargs.keys())
-    if raw_query.clause in (Clause.SELECT, Clause.DELETE) and raw_query.conditions == []:
-        raise ValueError("Empty by clause requires keyword arguments")
-    return get_primary_key_condition(raw_query)
-
-
-@cached(cache=parse_function_cache)
-def parse_function_name(func_name: str) -> Optional[ParsedQuery]:
-    if m := regex.match(func_name):
-        clause = clause_mapping[m.group("clause")]
-        try:
-            fields, joins = parse_query_body(m.group("body"))
-        except ValueError:
-            return None
-        if joins and clause != Clause.SELECT:
-            return None
-        is_count = m.group("count") is not None
-        if is_count and clause != Clause.SELECT:
-            return None
-        target = m.group("target") if clause == Clause.CALL else inflection.pluralize(m.group("target"))
-        return ParsedQuery(
-            clause,
-            target,
-            fields,
-            tuple(m.group("conditions").split('_and_')) if m.group("conditions") else (() if m.group("by") or m.group("when") else None),
-            False if is_count else clause != Clause.CALL and inflection.pluralize(m.group("target")) == m.group("target"),
-            m.group("async") == "async_",
-            m.group("when") is not None,
-            joins,
-            is_count,
-        )
-    return None
-
-
-def bind_parsed_query(parsed_query: ParsedQuery, result_type: Optional[type] = None, *args, **kwargs) -> RawQuery:
-    return RawQuery(
-        parsed_query.clause,
-        parsed_query.target,
-        list(parsed_query.fields) if parsed_query.fields is not None else None,
-        list(parsed_query.conditions) if parsed_query.conditions is not None else None,
-        parsed_query.is_list_result,
-        parsed_query.is_async_func,
-        args,
-        kwargs,
-        result_type,
-        parsed_query.is_when_condition,
-        list(parsed_query.joins) if parsed_query.joins is not None else None,
-        parsed_query.is_count,
-    )
-
-
-def parse_function_to_query(func_name: str, result_type: Optional[type] = None, *args, **kwargs) -> Optional[RawQuery]:
-    if parsed_query := parse_function_name(func_name):
-        return bind_parsed_query(parsed_query, result_type, *args, **kwargs)
-    return None
-
-
-def get_named_argument_cache_shape(name: str, value: Any) -> tuple[str, int | None]:
-    if parse_named_argument_to_condition(name)[1] != Operator.IN:
-        return name, None
-    if not isinstance(value, (list, tuple)):
-        return name, None
-    return name, len(value)
 
 
 def create_select_query_cache_key(raw_query: RawQuery) -> tuple[Any, ...]:

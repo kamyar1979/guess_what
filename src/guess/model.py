@@ -29,19 +29,19 @@ class Join:
     fields: Optional[tuple[str, ...]] = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class RawQuery:
     clause: Clause
     target: str
-    fields: Optional[list[str]] = None
-    conditions: Optional[list[str]] = None
+    fields: Optional[tuple[str, ...]] = None
+    conditions: Optional[tuple[str, ...]] = None
     is_list_result: bool = False
     is_async_func: bool = False
     args: Optional[tuple[Any, ...]] = None
     kwargs: Optional[dict[str, Any]] = None
     result_type: Optional[type] = None
     is_when_condition: bool = False
-    joins: Optional[list[Join]] = None
+    joins: Optional[tuple[Join, ...]] = None
     is_count: bool = False
 
 
