@@ -84,6 +84,26 @@ def test_sqlite_database_dynamic_methods_end_to_end():
         (1, "Alice", "alice@example.com", "pending"),
         (2, "Bob", "bob@example.com", "active"),
     ]
+    assert db.get_users_count() == 2
+    assert db.get_users_count(status="active") == 1
+    assert db.get_users_count_when(id_in=[1, 2], status_not_equal="archived") == 2
+    assert db.get_users_columns_name(order_by_desc="name") == [
+        ("Bob",),
+        ("Alice",),
+    ]
+    assert db.get_users_columns_name(order_by=("status", "name")) == [
+        ("Bob",),
+        ("Alice",),
+    ]
+    assert db.get_users_columns_name(order_by="name", offset=1, limit=1) == [
+        ("Bob",),
+    ]
+    assert db.get_users_columns_name(order_by="name", page=1, page_size=1) == [
+        ("Alice",),
+    ]
+    assert db.get_users_columns_name(order_by="name", **{"from": 1, "to": 2}) == [
+        ("Bob",),
+    ]
 
     db.set_user_columns_status_when(status="review", email_like="bob@%")
 

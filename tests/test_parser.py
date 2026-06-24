@@ -4,7 +4,7 @@ from enum import StrEnum
 from uuid import UUID
 
 import pytest
-from guess.model import Clause, DigestedQuery, RawQuery
+from guess.model import Clause, DigestedQuery, Join, RawQuery
 from guess.parser import (
     parse_function_to_query,
     parse_function_name,
@@ -173,6 +173,17 @@ def test_parse_func_name_select():
     assert q.fields == ["name", "email"]
     assert q.conditions == ["id"]
 
+    # Select count
+    q = parse_function_to_query("get_users_count_when")
+    assert q is not None
+    assert q.clause == Clause.SELECT
+    assert q.target == "users"
+    assert q.fields is None
+    assert q.conditions == []
+    assert q.is_when_condition is True
+    assert q.is_count is True
+    assert q.is_list_result is False
+
     # Select with multiple conditions
     q = parse_function_to_query("select_user_columns_name_by_status_and_role")
     assert q is not None
@@ -204,6 +215,42 @@ def test_parse_func_name_select():
     assert q.is_when_condition is True
 
     assert parse_function_to_query("get_user_columns_name_when_age_less_than") is None
+
+    # Select with joined tables
+    q = parse_function_to_query("get_users_columns_name_and_email_with_posts")
+    assert q is not None
+    assert q.clause == Clause.SELECT
+    assert q.target == "users"
+    assert q.fields == ["name", "email"]
+    assert q.joins == [Join("posts")]
+    assert q.conditions is None
+
+    q = parse_function_to_query("get_users_with_posts_columns_date")
+    assert q is not None
+    assert q.target == "users"
+    assert q.fields is None
+    assert q.joins == [Join("posts", ("date",))]
+
+    q = parse_function_to_query("get_user_columns_name_and_email_with_posts_columns_title_and_date")
+    assert q is not None
+    assert q.target == "users"
+    assert q.fields == ["name", "email"]
+    assert q.joins == [Join("posts", ("title", "date"))]
+    assert q.is_list_result is False
+
+    q = parse_function_to_query(
+        "get_users_columns_name_with_posts_columns_title_with_comments_columns_body_and_created_at_by_id"
+    )
+    assert q is not None
+    assert q.target == "users"
+    assert q.fields == ["name"]
+    assert q.joins == [
+        Join("posts", ("title",)),
+        Join("comments", ("body", "created_at")),
+    ]
+    assert q.conditions == ["id"]
+
+    assert parse_function_to_query("set_users_with_posts_columns_title_by_id") is None
 
 
 def test_parse_named_arguments_to_where_clause():
@@ -392,6 +439,35 @@ def test_create_query_select():
     )
 
 
+def test_create_query_select_count():
+    assert create_query("get_users_count") == DigestedQuery(
+        "SELECT COUNT(*) FROM users",
+        (),
+        False,
+        False,
+    )
+    assert create_query("get_users_count", None, status="active") == DigestedQuery(
+        "SELECT COUNT(*) FROM users WHERE status = %s",
+        ("active",),
+        False,
+        False,
+    )
+    assert create_query("get_users_count_when", None, age_less_than=5) == DigestedQuery(
+        "SELECT COUNT(*) FROM users WHERE age < %s",
+        (5,),
+        False,
+        False,
+    )
+
+
+def test_create_query_select_count_rejects_sorting_and_pagination():
+    with pytest.raises(ValueError, match="COUNT queries do not support sorting or pagination"):
+        create_query("get_users_count", None, sort_by="name")
+
+    with pytest.raises(ValueError, match="COUNT queries do not support sorting or pagination"):
+        create_query("get_users_count", None, limit=10)
+
+
 def test_create_query_select_rejects_mixed_positional_and_keyword_args():
     with pytest.raises(ValueError, match="positional and named arguments"):
         create_query("get_user_by_name_and_status", None, "test", status="pending")
@@ -437,6 +513,149 @@ def test_create_query_select_infers_conditions_from_kwargs_with_empty_by():
     )
 
 
+def test_create_query_select_uses_sorting_options():
+    assert create_query("get_users", None, order_by="name") == DigestedQuery(
+        "SELECT * FROM users ORDER BY name ASC",
+        (),
+        True,
+        False,
+    )
+    assert create_query("get_users", None, sort_by="email") == DigestedQuery(
+        "SELECT * FROM users ORDER BY email ASC",
+        (),
+        True,
+        False,
+    )
+    assert create_query("get_users", None, order_by_desc="name") == DigestedQuery(
+        "SELECT * FROM users ORDER BY name DESC",
+        (),
+        True,
+        False,
+    )
+    assert create_query("get_users", None, sort_by_desc="email") == DigestedQuery(
+        "SELECT * FROM users ORDER BY email DESC",
+        (),
+        True,
+        False,
+    )
+    assert create_query("get_users", None, order_by_reverse="name") == DigestedQuery(
+        "SELECT * FROM users ORDER BY name DESC",
+        (),
+        True,
+        False,
+    )
+    assert create_query("get_users", None, sort_by_reverse="email") == DigestedQuery(
+        "SELECT * FROM users ORDER BY email DESC",
+        (),
+        True,
+        False,
+    )
+    assert create_query("get_users", None, order_by=("name", "email")) == DigestedQuery(
+        "SELECT * FROM users ORDER BY name ASC,email ASC",
+        (),
+        True,
+        False,
+    )
+    assert create_query("get_users", None, sort_by_desc=("name", "email")) == DigestedQuery(
+        "SELECT * FROM users ORDER BY name DESC,email DESC",
+        (),
+        True,
+        False,
+    )
+    assert create_query("get_users", None, sort_by="name", sort_by_desc="created_at") == DigestedQuery(
+        "SELECT * FROM users ORDER BY name ASC,created_at DESC",
+        (),
+        True,
+        False,
+    )
+    assert create_query("get_users", None, sort_by_desc="created_at", sort_by="name") == DigestedQuery(
+        "SELECT * FROM users ORDER BY created_at DESC,name ASC",
+        (),
+        True,
+        False,
+    )
+
+
+def test_create_query_select_uses_pagination_options():
+    assert create_query("get_users", None, offset=10, limit=10) == DigestedQuery(
+        "SELECT * FROM users LIMIT %s OFFSET %s",
+        (10, 10),
+        True,
+        False,
+    )
+    assert create_query("get_users", None, page=2, page_size=10) == DigestedQuery(
+        "SELECT * FROM users LIMIT %s OFFSET %s",
+        (10, 10),
+        True,
+        False,
+    )
+    assert create_query("get_users", None, from_=10, to=20) == DigestedQuery(
+        "SELECT * FROM users LIMIT %s OFFSET %s",
+        (10, 10),
+        True,
+        False,
+    )
+    assert create_query("get_users", None, **{"from": 10, "to": 20}) == DigestedQuery(
+        "SELECT * FROM users LIMIT %s OFFSET %s",
+        (10, 10),
+        True,
+        False,
+    )
+    assert create_query("get_users", None, limit=5) == DigestedQuery(
+        "SELECT * FROM users LIMIT %s",
+        (5,),
+        True,
+        False,
+    )
+
+
+def test_create_query_select_combines_conditions_sorting_and_pagination():
+    assert create_query("get_users", None, status="active", order_by_desc="name", limit=5) == DigestedQuery(
+        "SELECT * FROM users WHERE status = %s ORDER BY name DESC LIMIT %s",
+        ("active", 5),
+        True,
+        False,
+    )
+    assert create_query("get_user", None, 123, limit=1) == DigestedQuery(
+        "SELECT * FROM users WHERE id = %s LIMIT %s",
+        (123, 1),
+        False,
+        False,
+    )
+    assert create_query("get_users_by_offset", None, offset=10) == DigestedQuery(
+        "SELECT * FROM users WHERE offset = %s",
+        (10,),
+        True,
+        False,
+    )
+
+
+def test_create_query_select_rejects_invalid_sorting_and_pagination_options():
+    with pytest.raises(ValueError, match="Invalid order_by"):
+        create_query("get_users", None, order_by="name;drop")
+
+    with pytest.raises(ValueError, match="Invalid order_by"):
+        create_query("get_users", None, order_by="name,email")
+
+    with pytest.raises(ValueError, match="Invalid order_by"):
+        create_query("get_users", None, order_by=("name", "email;drop"))
+
+    with pytest.raises(ValueError, match="order_by requires at least one field"):
+        create_query("get_users", None, order_by=())
+
+    with pytest.raises(ValueError, match="Use only one pagination style"):
+        create_query("get_users", None, offset=10, limit=10, page=1, page_size=10)
+
+    with pytest.raises(ValueError, match="from/from_ pagination requires to"):
+        create_query("get_users", None, from_=10)
+
+    with pytest.raises(ValueError, match="to must be greater than from"):
+        create_query("get_users", None, from_=10, to=10)
+
+    with pytest.raises(ValueError, match="page pagination requires page and page_size"):
+        create_query("get_users", None, page=1)
+
+
 def test_create_query_select_uses_when_operator_conditions():
     assert create_query(
         "get_users_when",
@@ -463,6 +682,11 @@ def test_create_query_select_uses_when_operator_conditions():
         True,
         False,
     )
+
+
+def test_create_query_select_rejects_join_until_query_generation_is_supported():
+    with pytest.raises(ValueError, match="JOIN queries are not supported yet"):
+        create_query("get_users_columns_name_and_email_with_posts_columns_title", None)
 
 
 def test_create_query_select_rejects_empty_by_without_kwargs():

@@ -92,6 +92,8 @@ class Database:
                 columns = [col[0] for col in cur.description]
 
                 result = cur.fetchall()
+                if query.startswith("SELECT COUNT("):
+                    return result[0][0] if result else 0
                 return self.prepare_result(result, result_type, columns, is_list)
 
             self.conn.commit()
@@ -112,6 +114,8 @@ class Database:
                 columns = [col[0] for col in cur.description]
 
                 result = await cur.fetchall()
+                if query.startswith("SELECT COUNT("):
+                    return result[0][0] if result else 0
                 return self.prepare_result(result, result_type, columns, is_list)
 
             await self._commit_async()

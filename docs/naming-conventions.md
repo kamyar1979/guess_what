@@ -84,6 +84,55 @@ db.delete_users_by(status="inactive", role="member")
 
 Calling an empty `_by` form without named arguments raises an error instead of generating a broad query.
 
+## SELECT Counts
+
+Use `_count` to return only the number of matching rows:
+
+```python
+db.get_users_count()
+db.get_users_count(status="active")
+db.get_users_count_when(age_less_than=5)
+```
+
+Generated count queries return a scalar integer instead of a one-column tuple.
+
+## SELECT Sorting And Pagination
+
+SELECT methods accept special keyword arguments for ordering and pagination. These arguments are not treated as conditions unless they are explicitly named in the method, such as `get_users_by_offset(offset=10)`.
+
+```python
+db.get_users(order_by="name")
+db.get_users(sort_by="name")
+db.get_users(order_by_desc="created_at")
+db.get_users(sort_by_desc="created_at")
+db.get_users(sort_by_reverse="created_at")
+db.get_users(order_by=("name", "email"))
+db.get_users(sort_by="name", sort_by_desc="created_at")
+```
+
+When multiple sort keyword arguments are used, their call-site order is preserved.
+
+Pagination can be expressed as offset/limit or page/page size:
+
+```python
+db.get_users(offset=10, limit=10)
+db.get_users(page=2, page_size=10)
+```
+
+Range-style pagination is also supported. Because `from` is a Python keyword, use `from_` in normal calls:
+
+```python
+db.get_users(from_=10, to=20)
+db.get_users(**{"from": 10, "to": 20})
+```
+
+Sorting and pagination can be combined with inferred conditions:
+
+```python
+db.get_users(status="active", order_by_desc="name", limit=5)
+# SELECT * FROM users WHERE status = %s ORDER BY name DESC LIMIT %s
+```
+
 ## Operator Conditions With `when`
 
 Use `_when` when conditions need operators other than equality. The operator is encoded in the named argument:

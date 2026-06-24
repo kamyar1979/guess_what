@@ -32,6 +32,20 @@ def test_sync_database_select_single():
     assert result == ("Alice", "alice@example.com")
 
 
+def test_sync_database_select_count_returns_scalar():
+    mock_conn = MagicMock()
+    mock_cursor = mock_conn.cursor.return_value
+    mock_cursor.fetchall.return_value = [(2,)]
+
+    db = Database(mock_conn)
+    result = db.get_users_count()
+
+    mock_cursor.execute.assert_called_once_with("SELECT COUNT(*) FROM users", ())
+    mock_cursor.fetchall.assert_called_once()
+    mock_cursor.close.assert_called_once()
+    assert result == 2
+
+
 def test_sync_database_insert():
     mock_conn = MagicMock()
     mock_cursor = mock_conn.cursor.return_value

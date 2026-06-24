@@ -23,6 +23,12 @@ class Operator(StrEnum):
     IN = "in"
 
 
+@dataclass(frozen=True)
+class Join:
+    target: str
+    fields: Optional[tuple[str, ...]] = None
+
+
 @dataclass
 class RawQuery:
     clause: Clause
@@ -35,6 +41,8 @@ class RawQuery:
     kwargs: Optional[dict[str, Any]] = None
     result_type: Optional[type] = None
     is_when_condition: bool = False
+    joins: Optional[list[Join]] = None
+    is_count: bool = False
 
 
 @dataclass(frozen=True)
@@ -46,6 +54,8 @@ class ParsedQuery:
     is_list_result: bool = False
     is_async_func: bool = False
     is_when_condition: bool = False
+    joins: Optional[tuple[Join, ...]] = None
+    is_count: bool = False
 
 
 @dataclass
