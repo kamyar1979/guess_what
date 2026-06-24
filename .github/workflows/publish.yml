@@ -31,11 +31,62 @@ jobs:
         env:
           PYTHONPATH: src
 
+      - name: Verify tag matches package version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          python - <<'PY'
+          import os
+          import tomllib
+
+          tag = os.environ["GITHUB_REF_NAME"].removeprefix("v")
+          with open("pyproject.toml", "rb") as f:
+              version = tomllib.load(f)["project"]["version"]
+
+          if tag != version:
+              raise SystemExit(f"Tag v{tag} does not match pyproject version {version}")
+          PY
+
       - name: Build package
-        run: uv build
+        run: |
+          rm -rf dist
+          uv build
 
       - name: Check package metadata
         run: uvx twine check dist/*
+
+      - name: Verify PyPI README content
+        run: |
+          python - <<'PY'
+          import email.parser
+          import pathlib
+          import tarfile
+          import zipfile
+
+          readme = pathlib.Path("README.md").read_text(encoding="utf-8").strip()
+          artifacts = list(pathlib.Path("dist").glob("*.tar.gz")) + list(pathlib.Path("dist").glob("*.whl"))
+
+          if not artifacts:
+              raise SystemExit("No distribution artifacts found")
+
+          def metadata_description(metadata: str) -> str:
+              message = email.parser.Parser().parsestr(metadata)
+              return message.get_payload().strip()
+
+          for artifact in artifacts:
+              if artifact.suffix == ".whl":
+                  with zipfile.ZipFile(artifact) as wheel:
+                      metadata_name = next(name for name in wheel.namelist() if name.endswith(".dist-info/METADATA"))
+                      description = metadata_description(wheel.read(metadata_name).decode("utf-8"))
+              else:
+                  with tarfile.open(artifact) as sdist:
+                      metadata_name = next(name for name in sdist.getnames() if name.endswith("/PKG-INFO"))
+                      description = metadata_description(sdist.extractfile(metadata_name).read().decode("utf-8"))
+
+              if description != readme:
+                  raise SystemExit(f"{artifact.name} does not contain the current README.md as its PyPI description")
+
+          print("Built package descriptions match README.md")
+          PY
 
       - name: Publish package to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
