@@ -5,21 +5,20 @@ from uuid import UUID
 
 import pytest
 from guess.model import Clause, DigestedQuery, Join, RawQuery
-from guess.parser import (
-    parse_function_to_query,
-    parse_function_name,
-    create_query,
+from guess.clauses.arguments import prepare_kwargs
+from guess.clauses.delete import (
     create_delete_query_shape,
-    create_select_query_shape,
     delete_argument_names_cache,
     delete_query_cache,
-    get_conditions,
-    parse_named_arguments_to_where_clause,
-    prepare_kwargs,
-    regex,
+)
+from guess.clauses.select import (
+    create_select_query_shape,
     select_argument_names_cache,
     select_query_cache,
 )
+from guess.clauses.conditions import get_conditions, parse_named_arguments_to_where_clause
+from guess.grammar import parse_function_name, parse_function_to_query, regex
+from guess.parser import create_query
 
 
 @dataclass

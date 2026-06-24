@@ -3,7 +3,8 @@ from __future__ import annotations
 import inspect
 from typing import Any, Sequence
 
-from .parser import *
+from .parser import create_query
+from .values import get_field_names
 
 
 class Interceptor:
